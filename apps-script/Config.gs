@@ -16,6 +16,9 @@ const APP_FOOTER = 'กลุ่มงานเภสัชกรรม รพ.�
 // ไอคอนบนแท็บเบราว์เซอร์ (เก็บบน GitHub Pages ของโปรเจกต์)
 const FAVICON_URL = 'https://font-pharm.github.io/Psychi-PCU/icons/favicon-32.png';
 
+// โลโก้ในเมนูและหน้า login
+const LOGO_URL = 'https://font-pharm.github.io/Psychi-PCU/icons/icon-192.png';
+
 // เขตเวลา ใช้ตอนจัดรูปแบบวันที่และตั้งเวลาแจ้งเตือน
 const TZ = 'Asia/Bangkok';
 

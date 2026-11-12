@@ -23,6 +23,7 @@ function doGet(e) {
   const boot = {                                             // ข้อมูลตั้งต้นที่ส่งให้หน้าเว็บ
     appName: APP_NAME,
     footer: APP_FOOTER,
+    logo: LOGO_URL,                                          // โลโก้ (เก็บบน GitHub Pages)
     execUrl: redirectUri_(),                                 // ลิงก์เว็บแอป (ใช้โหลดหน้าใหม่/ออกจากระบบ)
     view: p.view || '',                                      // หน้าที่ต้องการเปิด (จากปุ่มใน LINE)
     pcu: p.pcu || '',
@@ -193,7 +194,8 @@ function dataVersion_() {
   return prop_('DATA_VER') || '0';
 }
 function bumpDataVersion_() {
-  PropertiesService.getScriptProperties().setProperty('DATA_VER', String(Date.now()));
+  // เวลา + รหัสสุ่ม: ไม่ซ้ำแม้บันทึก 2 ครั้งในมิลลิวินาทีเดียวกัน
+  PropertiesService.getScriptProperties().setProperty('DATA_VER', Date.now() + '-' + Utilities.getUuid().slice(0, 8));
   DATA_DIRTY_ = false;
 }
 
@@ -488,11 +490,11 @@ const ACTIONS = {
   boot: {
     roles: ALL, run: function (user) {
       const out = ACTIONS.me.run(user);
-      if (user.role === 'pcu') {
-        out.initial = cachedResult_('pendingList', ACTIONS.pendingList.cacheKey(user, {}), function () {
-          return ACTIONS.pendingList.run(user, {});
-        });
-      }
+      // ข้อมูลหน้าแรก: รพ.สต. = หน้า "วันนี้", ห้องยา = ภาพรวม
+      const first = user.role === 'pcu' ? 'todayList' : 'dashboard';
+      out.initial = cachedResult_(first, ACTIONS[first].cacheKey(user, {}), function () {
+        return ACTIONS[first].run(user, {});
+      });
       if (user.role === 'admin') {
         out.pendingRequests = readAll_('REQ').filter(function (r) { return r.status === 'pending'; }).length;
       }
@@ -659,6 +661,65 @@ const ACTIONS = {
       return readAll_('INJ').filter(function (i) {
         return i.status === 'pending' && i.scheduledDate <= until && (!pcu || i.pcu === pcu);
       }).sort(function (a, b) { return a.scheduledDate < b.scheduledDate ? -1 : 1; }).map(injView_);
+    }
+  },
+
+  // หน้า "วันนี้": นัดวันนี้ (ทุกสถานะ) + ค้างยืนยัน + รอฉีดใน 7 วันข้างหน้า พร้อมประวัติแพ้ยา
+  todayList: {
+    roles: ALL,
+    cacheKey: function (u, p) { return [scopePcu_(u, p.pcu), todayIso_()]; },
+    run: function (user, p) {
+      const pcu = scopePcu_(user, p.pcu);
+      const t = todayIso_();
+      const since = addDaysIso(t, -OVERDUE_LOOKBACK_DAYS);
+      const until = addDaysIso(t, 7);
+      const allergy = {};
+      readAll_('PAT').forEach(function (x) { allergy[x.hn] = x.allergy; });
+      return readAll_('INJ').filter(function (i) {
+        if (i.status === 'cancelled' || (pcu && i.pcu !== pcu)) return false;
+        if (i.scheduledDate === t) return true;                           // วันนี้ ทุกสถานะ
+        return i.status === 'pending' && i.scheduledDate >= since && i.scheduledDate <= until;
+      }).sort(function (a, b) {
+        return a.scheduledDate === b.scheduledDate ? (a.name < b.name ? -1 : 1) : (a.scheduledDate < b.scheduledDate ? -1 : 1);
+      }).map(function (i) {
+        const v = injView_(i);
+        v.allergy = allergy[i.hn] || '';
+        return v;
+      });
+    }
+  },
+
+  // หน้าแรกห้องยา: ตัวเลขสรุปวันนี้ แยกตาม รพ.สต.
+  dashboard: {
+    roles: STAFF,
+    cacheKey: function () { return [todayIso_()]; },
+    run: function () {
+      const t = todayIso_();
+      const since = addDaysIso(t, -OVERDUE_LOOKBACK_DAYS);
+      const per = {};
+      const row = function (pcu) {
+        if (!per[pcu]) per[pcu] = { pcu: pcu, today: 0, done: 0, missed: 0, pending: 0, overdue: 0 };
+        return per[pcu];
+      };
+      readAll_('INJ').forEach(function (i) {
+        if (i.status === 'cancelled') return;
+        if (i.scheduledDate === t) { const r = row(i.pcu); r.today++; r[i.status]++; }
+        else if (i.status === 'pending' && i.scheduledDate < t && i.scheduledDate >= since) row(i.pcu).overdue++;
+      });
+      const month = t.slice(0, 7);
+      let ampMonth = 0;
+      readAll_('DISP').forEach(function (d) {
+        if (d.status === 'active' && d.dispenseDate.slice(0, 7) === month) ampMonth += Number(d.qtyAmp) || 0;
+      });
+      const rows = Object.keys(per).map(function (k) { return per[k]; })
+        .sort(function (a, b) { return (b.overdue - a.overdue) || (b.today - a.today); });
+      return {
+        rows: rows,
+        today: rows.reduce(function (s, r) { return s + r.today; }, 0),
+        overdue: rows.reduce(function (s, r) { return s + r.overdue; }, 0),
+        pendingRequests: readAll_('REQ').filter(function (r) { return r.status === 'pending'; }).length,
+        ampMonth: ampMonth
+      };
     }
   },
 
