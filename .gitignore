@@ -1,0 +1,11 @@
+# ห้าม commit ข้อมูลลับหรือข้อมูลผู้ป่วย
+.clasp.json
+.claprc.json
+*.env
+.env*
+*.xlsx
+*.csv
+secrets/
+patient*/
+*.log
+.DS_Store

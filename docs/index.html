@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ระบบยาฉีดจิตเวช รพ.สต.</title>
+  <!-- ไอคอนและการตั้งค่าแอปบนหน้าจอโฮม -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="theme-color" content="#1F1494">
+  <!-- iOS: เปิดแบบเต็มจอเหมือนแอป และชื่อใต้ไอคอน -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="ยาฉีดจิตเวช">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <style>
+    :root { --green: #0B6E4F; --blue: #1565C0; --indigo: #1F1494; --muted: #607D8B; --line: #DDE5EA; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; font-family: 'Sarabun', 'Leelawadee UI', 'Thonburi', sans-serif;
+      color: #263238; background: linear-gradient(160deg, #F4F7F9, #E8EEF8); display: flex;
+      align-items: center; justify-content: center; padding: 20px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 24px; max-width: 420px;
+      width: 100%; text-align: center; box-shadow: 0 6px 24px rgba(31, 20, 148, .08); }
+    img.logo { width: 132px; height: 132px; }
+    h1 { font-size: 20px; margin: 12px 0 2px; color: var(--indigo); }
+    .muted { color: var(--muted); font-size: 14px; }
+    .btn { display: block; width: 100%; border: 0; border-radius: 10px; padding: 13px; margin-top: 14px;
+      font-size: 17px; font-family: inherit; color: #fff; text-decoration: none; cursor: pointer;
+      background: linear-gradient(120deg, var(--green), var(--blue)); }
+    .btn.ghost { background: #fff; color: var(--indigo); border: 1px solid var(--indigo); }
+    .steps { text-align: left; background: #F4F7F9; border-radius: 10px; padding: 12px 14px; margin-top: 16px; font-size: 15px; }
+    .steps h2 { font-size: 16px; margin: 0 0 6px; color: var(--green); }
+    .steps ol { margin: 0; padding-left: 20px; }
+    .warn { background: #FFF1E0; color: #8A3B00; border-radius: 10px; padding: 10px; margin-top: 14px; font-size: 14px; }
+    #splash { display: none; }
+    footer { margin-top: 18px; font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <!-- หน้าจอระหว่างเปิดแอปจากไอคอน (แสดงสั้น ๆ ก่อนเข้าระบบ) -->
+  <div class="card" id="splash">
+    <img class="logo" src="icons/icon-512.png" alt="โลโก้">
+    <h1>กำลังเปิดระบบ...</h1>
+    <p class="muted">ถ้าหน้าไม่เปลี่ยนภายใน 5 วินาที <a id="splashLink" href="#">กดที่นี่</a></p>
+  </div>
+
+  <!-- หน้าทางเข้า + วิธีติดตั้ง (เมื่อเปิดจากเบราว์เซอร์) -->
+  <div class="card" id="home">
+    <img class="logo" src="icons/icon-512.png" alt="โลโก้ Psychiatric Med Primary Care Unit">
+    <h1>ระบบบันทึกยาฉีดจิตเวช รพ.สต.</h1>
+    <div class="muted">กลุ่มงานเภสัชกรรม รพ.ศีขรภูมิ</div>
+    <a class="btn" id="enter" href="#">เข้าระบบ</a>
+    <div id="notSet" class="warn" style="display:none">ผู้ดูแลระบบยังไม่ได้ตั้งลิงก์ระบบ (APP_URL ในไฟล์ docs/index.html)</div>
+    <div id="inApp" class="warn" style="display:none">กำลังเปิดในเบราว์เซอร์ของ LINE หรือแอปอื่น ซึ่งติดตั้งแอปไม่ได้
+      กรุณากดเมนู <b>⋮</b> หรือ <b>...</b> แล้วเลือก <b>เปิดในเบราว์เซอร์</b> (Chrome / Safari)</div>
+    <button class="btn ghost" id="installBtn" style="display:none">ติดตั้งแอปลงหน้าจอโฮม</button>
+    <div class="steps" id="iosSteps" style="display:none">
+      <h2>ติดตั้งบน iPhone / iPad</h2>
+      <ol>
+        <li>เปิดหน้านี้ด้วย <b>Safari</b></li>
+        <li>กดปุ่ม <b>แชร์</b> (สี่เหลี่ยมมีลูกศรชี้ขึ้น)</li>
+        <li>เลือก <b>เพิ่มไปยังหน้าจอโฮม</b> แล้วกด <b>เพิ่ม</b></li>
+      </ol>
+    </div>
+    <div class="steps" id="androidSteps" style="display:none">
+      <h2>ติดตั้งบน Android</h2>
+      <ol>
+        <li>เปิดหน้านี้ด้วย <b>Chrome</b></li>
+        <li>กดเมนู <b>⋮</b> มุมขวาบน</li>
+        <li>เลือก <b>ติดตั้งแอป</b> หรือ <b>เพิ่มลงในหน้าจอหลัก</b></li>
+      </ol>
+    </div>
+  </div>
+
+<script>
+/* ===================================================================
+ * หน้าทางเข้าแอป: เปิดจากไอคอนบนหน้าจอโฮม -> เข้าระบบทันที
+ *                 เปิดจากเบราว์เซอร์ -> แสดงปุ่มเข้าระบบ + วิธีติดตั้ง
+ * =================================================================== */
+
+// *** ลิงก์เว็บแอป Apps Script (ลงท้ายด้วย /exec) — แก้บรรทัดนี้บรรทัดเดียว ***
+const APP_URL = 'https://script.google.com/macros/s/ใส่รหัส-DEPLOYMENT-ID/exec';
+
+const configured = /^https:\/\/script\.google\.com\/.+\/exec$/.test(APP_URL) && APP_URL.indexOf('ใส่รหัส') < 0;
+// ส่งต่อพารามิเตอร์ เช่น ?view=day&pcu=... (ถ้ามี)
+const target = APP_URL + location.search.replace(/[?&]source=pwa/, '').replace(/^&/, '?');
+// เปิดจากไอคอนบนหน้าจอโฮมหรือไม่
+const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+const ua = navigator.userAgent;
+const isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isAndroid = /Android/.test(ua);
+const inAppBrowser = /Line\/|FBAN|FBAV|Instagram/i.test(ua);
+
+if (standalone && configured) {
+  // เปิดจากไอคอน -> เข้าระบบทันที
+  document.getElementById('home').style.display = 'none';
+  document.getElementById('splash').style.display = 'block';
+  document.getElementById('splashLink').href = target;
+  location.replace(target);
+} else {
+  const enter = document.getElementById('enter');
+  if (configured) enter.href = target;
+  else { enter.style.display = 'none'; document.getElementById('notSet').style.display = 'block'; }
+  if (inAppBrowser) document.getElementById('inApp').style.display = 'block';
+  else if (isIOS) document.getElementById('iosSteps').style.display = 'block';
+  else if (isAndroid) document.getElementById('androidSteps').style.display = 'block';
+}
+
+// Android/Chrome: ปุ่ม "ติดตั้งแอป" แบบกดครั้งเดียว
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('installBtn').style.display = 'block';
+});
+document.getElementById('installBtn').addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  document.getElementById('installBtn').style.display = 'none';
+});
+
+// ลงทะเบียน service worker (เงื่อนไขให้ Android ติดตั้งเป็นแอปได้)
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
