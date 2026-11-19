@@ -42,26 +42,23 @@ function buildInjectionPdf_(pcu, dateIso) {
     };
     const base = sty(12, false);
 
-    // หัวเอกสาร
-    body.getParagraphs()[0].setText('รายชื่อผู้ป่วยนัดฉีดยาจิตเวช รพ.สต.' + pcu)
-      .setAttributes(sty(16, true)).setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-    body.appendParagraph('วันที่ ' + thaiDateLong_(dateIso) + '   จำนวน ' + dayList.length + ' ราย')
-      .setAttributes(base).setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+    // หัวเอกสาร (แยกทีละคำสั่ง ไม่ต่อกันเป็นสาย เพราะบางคำสั่งของ Google Docs คืนค่า null)
+    const title = body.getParagraphs()[0];
+    title.setText('รายชื่อผู้ป่วยนัดฉีดยาจิตเวช รพ.สต.' + pcu);
+    styleP_(title, sty(16, true), true);
+    styleP_(body.appendParagraph('วันที่ ' + thaiDateLong_(dateIso) + '   จำนวน ' + dayList.length + ' ราย'), base, true);
 
     // ตารางหลัก
     appendInjTable_(body, base, sty(12, true, '#FFFFFF'), dayList, allergy, false);
 
     // ตารางค้างยืนยัน
     if (overdue.length) {
-      body.appendParagraph('รายการที่เลยวันนัดและยังไม่ยืนยันการฉีด ' + overdue.length + ' ราย')
-        .setAttributes(sty(12, true));
+      styleP_(body.appendParagraph('รายการที่เลยวันนัดและยังไม่ยืนยันการฉีด ' + overdue.length + ' ราย'), sty(12, true));
       appendInjTable_(body, base, sty(12, true, '#FFFFFF'), overdue, allergy, true);
     }
 
-    body.appendParagraph('ผู้จัดทำรายงาน ........................................   วันที่ ......................')
-      .setAttributes(base);
-    body.appendParagraph(APP_FOOTER + ' | พิมพ์เมื่อ ' + nowStr_())
-      .setAttributes(sty(10, false, '#607D8B'));
+    styleP_(body.appendParagraph('ผู้จัดทำรายงาน ........................................   วันที่ ......................'), base);
+    styleP_(body.appendParagraph(APP_FOOTER + ' | พิมพ์เมื่อ ' + nowStr_()), sty(10, false, '#607D8B'));
     doc.saveAndClose();
 
     const blob = DriveApp.getFileById(fileId).getAs('application/pdf');
@@ -69,6 +66,10 @@ function buildInjectionPdf_(pcu, dateIso) {
       fileName: 'นัดฉีดยาจิตเวช_' + pcu + '_' + dateIso + '.pdf',
       base64: Utilities.base64Encode(blob.getBytes())
     };
+  } catch (e) {
+    // บอกบรรทัดที่ผิดพลาดด้วย เช่น "... [Pdf.gs:52]" เพื่อให้ตามแก้ได้ตรงจุด
+    const at = String(e.stack || '').match(/\w+\.gs:\d+/);
+    throw new Error('สร้าง PDF ไม่สำเร็จ: ' + e.message + (at ? ' [' + at[0] + ']' : ''));
   } finally {
     DriveApp.getFileById(fileId).setTrashed(true);       // ทิ้งไฟล์ชั่วคราวเสมอ แม้เกิดข้อผิดพลาด
   }
@@ -99,11 +100,28 @@ function appendInjTable_(body, base, headStyle, list, allergy, showDate) {
       const st = r === 0 ? headStyle : base;               // หัวตาราง = ตัวหนาสีขาว
       for (let k = 0; k < cell.getNumChildren(); k++) {
         const child = cell.getChild(k);
-        if (child && child.getType() === DocumentApp.ElementType.PARAGRAPH) child.asParagraph().setAttributes(st);
+        if (child && child.getType() === DocumentApp.ElementType.PARAGRAPH) styleP_(child.asParagraph(), st);
       }
       if (r === 0) cell.setBackgroundColor('#0B6E4F');
     }
   }
+}
+
+/** ตั้งฟอนต์ให้ย่อหน้า (ข้ามถ้าไม่มีย่อหน้า) center = จัดกึ่งกลาง */
+function styleP_(p, st, center) {
+  if (!p) return;
+  p.setAttributes(st);
+  if (center) p.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+}
+
+/**
+ * ทดสอบสร้าง PDF จากหน้าแก้โค้ด: เลือกฟังก์ชัน testPdf แล้วกด "เรียกใช้"
+ * ดูผลที่ "บันทึกการดำเนินการ" (ถ้า error จะบอกชื่อไฟล์และบรรทัด)
+ */
+function testPdf() {
+  const pcu = readAll_('PCU')[0].name;                   // รพ.สต. แห่งแรกในรายการ
+  const r = buildInjectionPdf_(pcu, todayIso_());
+  Logger.log('สำเร็จ: ' + r.fileName + ' ขนาด ' + Math.round(r.base64.length * 0.75 / 1024) + ' KB');
 }
 
 /** วันที่แบบเต็ม "9 พฤศจิกายน 2569" */
