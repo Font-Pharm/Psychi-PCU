@@ -254,7 +254,8 @@ function createDailyTrigger() {
 
 /** ค่าใน Script Properties (ที่เก็บรหัสลับ เช่น API key) */
 function prop_(key) {
-  return PropertiesService.getScriptProperties().getProperty(key) || '';
+  // trim() = ตัดช่องว่าง/ขึ้นบรรทัดใหม่ที่ติดมาตอนคัดลอกวาง (ทำให้ redirect_uri ไม่ตรงกับที่ลงทะเบียนไว้)
+  return String(PropertiesService.getScriptProperties().getProperty(key) || '').trim();
 }
 
 /** เปิดไฟล์ Sheets: ใช้ SHEET_ID ถ้าตั้งไว้ ไม่งั้นใช้ไฟล์ที่ผูกสคริปต์อยู่ */
