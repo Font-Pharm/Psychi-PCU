@@ -11,6 +11,7 @@
  *   - ฟอนต์ Sarabun (ฟอนต์ราชการที่ Google Docs มีให้ใช้) หัวเรื่อง 16 / เนื้อหา 12 / หมายเหตุ 10
  *   - ความกว้างคอลัมน์กำหนดตามความยาวข้อมูลจริงของแต่ละคอลัมน์
  *   - ใช้ "ช่องว่างไม่ตัดบรรทัด" ระหว่างคำที่ต้องอยู่ด้วยกัน เช่น 50 mg, ชื่อ-สกุล
+ *   - ช่องผลการฉีดและวันนัดจัดกึ่งกลาง / บรรทัดผู้จัดทำรายงานชิดขวาใต้ตาราง
  * =====================================================================
  */
 
@@ -25,7 +26,7 @@ const PDF_COLS = [
   { head: 'ยา / ขนาด', cm: 4.9 },
   { head: 'ครั้งที่', cm: 1.4, center: true },
   { head: 'แพ้ยา', cm: 3.4 },                                 // ตารางค้างยืนยันจะเปลี่ยนเป็น "วันนัด"
-  { head: 'ผลการฉีด / ลงชื่อผู้ฉีด', cm: 6.4 }
+  { head: 'ผลการฉีด / ลงชื่อผู้ฉีด', cm: 6.4, center: true }
 ];
 
 /**
@@ -73,18 +74,12 @@ function buildInjectionPdf_(pcu, dateIso) {
       appendInjTable_(body, overdue, allergy, true);
     }
 
-    // ---- หมายเหตุ + ช่องลงชื่อผู้จัดทำ ----
+    // ---- ผู้จัดทำรายงาน: บรรทัดเดียว ชิดขวาใต้ตาราง ----
+    styleP_(body.appendParagraph('ผู้จัดทำรายงาน ........................................   วันที่ ......................'),
+      sty_(12, false), 'right', 8, 10);
+    // ---- หมายเหตุ ----
     styleP_(body.appendParagraph('หมายเหตุ  โปรดบันทึกผลการฉีดในระบบภายในวันที่ฉีด กรณีผู้ป่วยไม่มาตามนัด ให้ระบุ "ไม่มา" และติดตามผู้ป่วย'),
-      sty_(10, false, '#455A64'), 'left', 10, 18);
-    const indent = 16.5 * PDF_CM;                          // ช่องลงชื่อชิดขวาของหน้า
-    ['ลงชื่อ' + PDF_NBSP + '.............................................' + PDF_NBSP + 'ผู้จัดทำ',
-      '(.............................................)',
-      'ตำแหน่ง' + PDF_NBSP + '.............................................',
-      'วันที่' + PDF_NBSP + '........../........../..........'].forEach(function (t) {
-      const p = body.appendParagraph(t);
-      styleP_(p, sty_(12, false), 'center', 0, 4);
-      p.setIndentStart(indent).setIndentFirstLine(indent);
-    });
+      sty_(10, false, '#455A64'), 'left', 0, 0);
 
     // ---- ท้ายกระดาษทุกหน้า ----
     const footer = doc.addFooter();
@@ -140,7 +135,8 @@ function appendInjTable_(body, list, allergy, showDate) {
       // แพ้ยา: ถ้ามีประวัติ ให้เป็นตัวหนาสีแดงเข้ม เพื่อให้ผู้ฉีดเห็นชัด
       const alert = r > 0 && c === 5 && !showDate && text && text !== 'ไม่มี' && text.trim();
       const st = r === 0 ? sty_(12, true) : (alert ? sty_(12, true, '#A11A1A') : sty_(12, false));
-      const align = r === 0 || PDF_COLS[c].center ? 'center' : 'left';
+      // กึ่งกลาง: หัวตาราง, คอลัมน์ที่กำหนด center, และช่อง "วันนัด" ในตารางค้างยืนยัน
+      const align = r === 0 || PDF_COLS[c].center || (c === 5 && showDate) ? 'center' : 'left';
       for (let k = 0; k < cell.getNumChildren(); k++) {
         const child = cell.getChild(k);
         if (child && child.getType() === DocumentApp.ElementType.PARAGRAPH) styleP_(child.asParagraph(), st, align, 0, 0);
