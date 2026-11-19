@@ -84,10 +84,10 @@ function appendInjTable_(body, base, headStyle, list, allergy, showDate) {
       i.drugName.split(' ').slice(0, 2).join(' ') + ' ' + i.doseMg + ' mg IM (' + i.ampPerDose + ' amp)',
       String(i.cycleNo),
       showDate ? thaiDate(i.scheduledDate) : (allergy[i.hn] || '-'),
-      i.status === 'done' ? 'ฉีดแล้ว ' + thaiDate(i.actualDate) : (i.status === 'missed' ? 'ไม่มาฉีด' : '')
+      i.status === 'done' ? 'ฉีดแล้ว ' + thaiDate(i.actualDate) : (i.status === 'missed' ? 'ไม่มาฉีด' : ' ')
     ]);
   });
-  if (rows.length === 1) rows.push(['', '', 'ไม่มีรายการ', '', '', '', '']);
+  if (rows.length === 1) rows.push([' ', ' ', 'ไม่มีรายการ', ' ', ' ', ' ', ' ']);
   const table = body.appendTable(rows);
   table.setBorderColor('#90A4AE');
   for (let r = 0; r < table.getNumRows(); r++) {
@@ -95,7 +95,12 @@ function appendInjTable_(body, base, headStyle, list, allergy, showDate) {
     for (let c = 0; c < row.getNumCells(); c++) {
       const cell = row.getCell(c);
       cell.setPaddingTop(2).setPaddingBottom(2);
-      cell.editAsText().setAttributes(r === 0 ? headStyle : base);   // หัวตาราง = ตัวหนาสีขาว
+      // ช่องที่ว่างเปล่า editAsText() ได้ค่า null -> ตั้งรูปแบบที่ "ย่อหน้า" ในช่องแทน (ไม่ error)
+      const st = r === 0 ? headStyle : base;               // หัวตาราง = ตัวหนาสีขาว
+      for (let k = 0; k < cell.getNumChildren(); k++) {
+        const child = cell.getChild(k);
+        if (child && child.getType() === DocumentApp.ElementType.PARAGRAPH) child.asParagraph().setAttributes(st);
+      }
       if (r === 0) cell.setBackgroundColor('#0B6E4F');
     }
   }
