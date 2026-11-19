@@ -19,6 +19,10 @@ const FAVICON_URL = 'https://font-pharm.github.io/Psychi-PCU/icons/favicon-32.pn
 // โลโก้ในเมนูและหน้า login
 const LOGO_URL = 'https://font-pharm.github.io/Psychi-PCU/icons/icon-192.png';
 
+// หน้าทางเข้าบน GitHub Pages ที่ "ฝัง" ระบบไว้ข้างใน (ไม่มีแถบแจ้ง Apps Script ด้านบน)
+// ลิงก์ในการ์ด LINE จะชี้มาที่หน้านี้ ถ้าเว้นว่าง '' = ใช้ลิงก์ /exec แบบเดิม
+const LAUNCHER_URL = 'https://font-pharm.github.io/Psychi-PCU/';
+
 // เขตเวลา ใช้ตอนจัดรูปแบบวันที่และตั้งเวลาแจ้งเตือน
 const TZ = 'Asia/Bangkok';
 
@@ -41,6 +45,12 @@ const OVERDUE_LOOKBACK_DAYS = 30;
 
 // AuditLog เกินกี่แถวให้แยกเก็บเป็นแท็บใหม่ (กันไฟล์ช้า)
 const AUDIT_MAX_ROWS = 50000;
+
+// ผู้ป่วยนับเป็น "รายใหม่" กี่วัน นับจากวันจ่ายยาครั้งแรก
+const NEW_PATIENT_DAYS = 30;
+
+// ข้อมูลปีงบเก่า: ย้ายไปแท็บเก็บถาวร เมื่อนัดสุดท้ายของรอบนั้น (หรือวันที่ 30 ก.ย.) ผ่านไปเกินกี่วัน
+const ARCHIVE_AFTER_DAYS = 30;
 
 // จำนวนรายชื่อสูงสุดในการ์ด LINE 1 ใบ (เกินนี้ให้เปิดดูในระบบ)
 const LINE_MAX_ROWS = 25;
@@ -71,7 +81,9 @@ const SHEETS = {
   // ทะเบียนผู้ป่วย ใช้แยกรายใหม่/รายเดิม และตรวจชื่อกับ HN
   PAT: {
     name: 'Patients',
-    headers: ['hn', 'name', 'pcu', 'firstDispenseDate', 'allergy', 'updatedAt']
+    headers: ['hn', 'name', 'pcu', 'firstDispenseDate', 'allergy', 'updatedAt',
+      'archivedFirst',                                        // วันจ่ายยาเก่าสุดที่ถูกย้ายไปเก็บถาวร
+      'archivedDone']                                         // จำนวนครั้งที่ฉีดแล้ว ที่ถูกย้ายไปเก็บถาวร
   },
   // รายชื่อ รพ.สต.
   PCU: { name: 'PCU', headers: ['name', 'active'] },
@@ -93,6 +105,10 @@ const SHEETS = {
   // บันทึกการใช้งาน (ใครทำอะไร เมื่อไร)
   AUDIT: { name: 'AuditLog', headers: ['time', 'uid', 'displayName', 'action', 'detail'] }
 };
+
+// แท็บเก็บถาวร: หัวคอลัมน์เหมือนแท็บต้นทาง + วันที่ย้าย (ระบบไม่อ่านแท็บนี้ระหว่างใช้งาน จึงไม่ทำให้ช้า)
+SHEETS.ARCH_DISP = { name: 'Archive_Dispenses', headers: SHEETS.DISP.headers.concat(['archivedAt']) };
+SHEETS.ARCH_INJ = { name: 'Archive_Injections', headers: SHEETS.INJ.headers.concat(['archivedAt']) };
 
 // รายชื่อ รพ.สต. 21 แห่ง (ใส่ลงชีต PCU ตอนรัน setup ครั้งแรก)
 const DEFAULT_PCUS = [

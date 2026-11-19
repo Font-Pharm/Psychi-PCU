@@ -39,6 +39,12 @@
     .steps ol { margin: 0; padding-left: 20px; }
     .warn { background: #FFF1E0; color: #8A3B00; border-radius: 10px; padding: 10px; margin-top: 14px; font-size: 14px; }
     #splash { display: none; }
+    /* ระบบที่ฝังไว้: เต็มจอ ไม่มีแถบแจ้งเตือนของ Apps Script */
+    #app { position: fixed; inset: 0; width: 100%; height: 100%; height: 100dvh; border: 0; background: #F5F7F8;
+      display: none; z-index: 5; }
+    body.embedded { padding: 0; background: #F5F7F8; }
+    body.embedded #home { display: none; }
+    .slow { display: none; margin-top: 10px; }
     footer { margin-top: 18px; font-size: 12px; color: var(--muted); }
   </style>
 </head>
@@ -47,8 +53,11 @@
   <div class="card" id="splash">
     <img class="logo" src="icons/icon-512.png" alt="โลโก้">
     <h1>กำลังเปิดระบบ...</h1>
-    <p class="muted">ถ้าหน้าไม่เปลี่ยนภายใน 5 วินาที <a id="splashLink" href="#">กดที่นี่</a></p>
+    <p class="muted">รอสักครู่ ระบบกำลังโหลด</p>
+    <p class="muted slow" id="slow">ใช้เวลานานกว่าปกติ ตรวจสัญญาณอินเทอร์เน็ต หรือ
+      <a id="splashLink" href="#" target="_top">เปิดระบบแบบเดิม</a></p>
   </div>
+  <iframe id="app" title="ระบบบันทึกยาฉีดจิตเวช รพ.สต." allow="camera; clipboard-write"></iframe>
 
   <!-- หน้าทางเข้า + วิธีติดตั้ง (เมื่อเปิดจากเบราว์เซอร์) -->
   <div class="card" id="home">
@@ -80,36 +89,89 @@
 
 <script>
 /* ===================================================================
- * หน้าทางเข้าแอป: เปิดจากไอคอนบนหน้าจอโฮม -> เข้าระบบทันที
- *                 เปิดจากเบราว์เซอร์ -> แสดงปุ่มเข้าระบบ + วิธีติดตั้ง
+ * หน้าทางเข้าแอป: เปิดระบบ Apps Script "ฝัง" ไว้ในหน้านี้ (iframe)
+ *   -> ไม่มีแถบ "แอปพลิเคชันนี้สร้างโดยผู้ใช้ Google Apps Script" ด้านบน
+ *   เปิดจากไอคอนบนหน้าจอโฮม / กลับจาก login / เคยเข้าระบบแล้ว -> เข้าระบบทันที
+ *   เปิดจากเบราว์เซอร์ครั้งแรก -> แสดงปุ่มเข้าระบบ + วิธีติดตั้ง
  * =================================================================== */
 
 // *** ลิงก์เว็บแอป Apps Script (ลงท้ายด้วย /exec) — แก้บรรทัดนี้บรรทัดเดียว ***
 const APP_URL = 'https://script.google.com/macros/s/AKfycbz7wKx2Fs7rktePLZc5uoysDzD0eQrqW8rONFUrCKHaL5pq3xP7BV28RB3Bb_Luv88UWg/exec';
 
-const configured = /^https:\/\/script\.google\.com\/.+\/exec$/.test(APP_URL) && APP_URL.indexOf('ใส่รหัส') < 0;
-// ส่งต่อพารามิเตอร์ เช่น ?view=day&pcu=... (ถ้ามี)
-const target = APP_URL + location.search.replace(/[?&]source=pwa/, '').replace(/^&/, '?');
-// เปิดจากไอคอนบนหน้าจอโฮมหรือไม่
+const KEY = 'psy_session';                                   // ที่เก็บ session ในเครื่องนี้
+const configured = /^https:\/\/script\.google\.com\/.+\/exec$/.test(APP_URL);
+const $ = (id) => document.getElementById(id);
+const store = {
+  get: () => { try { return localStorage.getItem(KEY) || ''; } catch (e) { return ''; } },
+  set: (v) => { try { v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY); } catch (e) {} }
+};
+
+// 1) กลับมาจากหน้า login: ข้อมูลอยู่หลัง # -> เก็บ session แล้วลบออกจากแถบที่อยู่ทันที
+const back = new URLSearchParams(location.hash.slice(1));
+const fromLogin = back.has('s') || back.has('n') || back.has('err');
+if (fromLogin) {
+  if (back.get('s')) store.set(back.get('s'));
+  history.replaceState(null, '', location.pathname + location.search);
+}
+
+// 2) หน้าที่ต้องการเปิด เช่น ?view=calendar&pcu=... (จากปุ่มในการ์ด LINE)
+const q = new URLSearchParams(location.search);
+const pick = (k) => back.get(k) || q.get(k) || '';
+
+// 3) สร้างลิงก์ระบบที่จะฝัง
+function appSrc() {
+  const p = new URLSearchParams({ embed: '1' });
+  const s = store.get(); if (s) p.set('s', s);
+  ['view', 'pcu'].forEach((k) => { if (pick(k)) p.set(k, pick(k)); });
+  if (back.get('n')) p.set('n', back.get('n'));
+  if (back.get('err')) p.set('err', back.get('err'));
+  return APP_URL + '?' + p.toString();
+}
+
+function openApp() {
+  document.body.classList.add('embedded');
+  $('splash').style.display = 'block';
+  $('splashLink').href = APP_URL;
+  const f = $('app');
+  const slow = setTimeout(() => { $('slow').style.display = 'block'; }, 12000);
+  f.onload = () => { clearTimeout(slow); f.style.display = 'block'; $('splash').style.display = 'none'; };
+  f.src = appSrc();
+}
+
+// 4) ข้อความจากระบบที่ฝังไว้ (รับเฉพาะจากโดเมนของ Apps Script)
+window.addEventListener('message', (e) => {
+  if (!/^https:\/\/[a-z0-9-]+\.googleusercontent\.com$/.test(e.origin)) return;
+  const m = e.data || {};
+  if (m.type === 'psy-logout') store.set('');                // ออกจากระบบ / หมดเวลา
+  if (m.type === 'psy-download' && m.base64) saveFile(m.fileName || 'file.pdf', m.base64);
+});
+
+/** บันทึกไฟล์ PDF ที่ระบบส่งมา */
+function saveFile(name, b64) {
+  const bin = atob(b64); const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([arr], { type: 'application/pdf' }));
+  const a = document.createElement('a'); a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+// 5) ตัดสินใจว่าจะเข้าระบบทันที หรือแสดงหน้าทางเข้า
 const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
 const ua = navigator.userAgent;
 const isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const isAndroid = /Android/.test(ua);
 const inAppBrowser = /Line\/|FBAN|FBAV|Instagram/i.test(ua);
 
-if (standalone && configured) {
-  // เปิดจากไอคอน -> เข้าระบบทันที
-  document.getElementById('home').style.display = 'none';
-  document.getElementById('splash').style.display = 'block';
-  document.getElementById('splashLink').href = target;
-  location.replace(target);
+if (!configured) {
+  $('enter').style.display = 'none'; $('notSet').style.display = 'block';
+} else if (standalone || fromLogin || store.get() || q.has('view')) {
+  openApp();
 } else {
-  const enter = document.getElementById('enter');
-  if (configured) enter.href = target;
-  else { enter.style.display = 'none'; document.getElementById('notSet').style.display = 'block'; }
-  if (inAppBrowser) document.getElementById('inApp').style.display = 'block';
-  else if (isIOS) document.getElementById('iosSteps').style.display = 'block';
-  else if (isAndroid) document.getElementById('androidSteps').style.display = 'block';
+  $('enter').addEventListener('click', (e) => { e.preventDefault(); openApp(); });
+  if (inAppBrowser) $('inApp').style.display = 'block';
+  else if (isIOS) $('iosSteps').style.display = 'block';
+  else if (isAndroid) $('androidSteps').style.display = 'block';
 }
 
 // Android/Chrome: ปุ่ม "ติดตั้งแอป" แบบกดครั้งเดียว

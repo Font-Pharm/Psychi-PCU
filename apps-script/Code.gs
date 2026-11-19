@@ -20,11 +20,15 @@
 function doGet(e) {
   const p = (e && e.parameter) || {};                       // พารามิเตอร์ใน URL
   rememberExecUrl_();                                        // จำลิงก์ /exec ไว้ใช้ตอนส่ง LINE
+  EMBED_ = p.embed === '1' && !!LAUNCHER_URL;                // เปิดจากหน้าทางเข้า GitHub Pages (ฝังใน iframe)
   const boot = {                                             // ข้อมูลตั้งต้นที่ส่งให้หน้าเว็บ
     appName: APP_NAME,
     footer: APP_FOOTER,
     logo: LOGO_URL,                                          // โลโก้ (เก็บบน GitHub Pages)
     execUrl: redirectUri_(),                                 // ลิงก์เว็บแอป (ใช้โหลดหน้าใหม่/ออกจากระบบ)
+    embed: EMBED_,
+    homeUrl: EMBED_ ? LAUNCHER_URL : redirectUri_(),         // ลิงก์ "เริ่มใหม่" (ฝังอยู่ = กลับหน้าทางเข้า)
+    launcherOrigin: LAUNCHER_URL ? LAUNCHER_URL.match(/^https:\/\/[^/]+/)[0] : '',
     view: p.view || '',                                      // หน้าที่ต้องการเปิด (จากปุ่มใน LINE)
     pcu: p.pcu || '',
     session: '',
@@ -33,6 +37,7 @@ function doGet(e) {
   };
   if (p.code && p.state) {                                   // กลับมาจากการ login
     const r = handleOAuthCallback_(p.code, p.state);
+    if (r.embed && LAUNCHER_URL) return backToLauncher_(r);  // login จากหน้าทางเข้า -> ส่งกลับไปที่นั่น
     boot.view = r.view || boot.view;                         // กลับไปหน้าที่ตั้งใจเปิด (เช่น จากการ์ด LINE)
     boot.pcu = r.pcu || boot.pcu;
     boot.session = r.session || '';
@@ -40,6 +45,10 @@ function doGet(e) {
     boot.error = r.error || '';
   } else if (p.error) {                                      // ผู้ใช้กดยกเลิกที่หน้า login
     boot.error = 'ยกเลิกการเข้าสู่ระบบ';
+  } else if (EMBED_) {                                       // หน้าทางเข้าส่ง session / ข้อความมาให้
+    boot.session = String(p.s || '').slice(0, 500);
+    boot.notice = String(p.n || '').slice(0, 120);
+    boot.error = String(p.err || '').slice(0, 160);
   }
   boot.loginUrls = {                                         // ลิงก์ปุ่ม login (จำหน้าที่จะเปิดหลัง login ไว้ใน state)
     google: googleAuthUrl_(boot.view, boot.pcu),
@@ -51,7 +60,34 @@ function doGet(e) {
   return t.evaluate()
     .setTitle(APP_NAME)
     .setFaviconUrl(FAVICON_URL)                              // ไอคอนบนแท็บเบราว์เซอร์
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');   // ให้แสดงผลพอดีจอมือถือ
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')    // ให้แสดงผลพอดีจอมือถือ
+    // อนุญาตให้หน้าทางเข้า GitHub Pages ฝังระบบไว้ใน iframe (ข้อมูลยังต้อง login ทุกครั้ง)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * login สำเร็จ (เริ่มจากหน้าทางเข้า) -> หน้าสั้น ๆ พากลับไปหน้าทางเข้า พร้อม session
+ * session อยู่หลัง # จึงไม่ถูกส่งไปเซิร์ฟเวอร์ใด และหน้าทางเข้าลบออกจากแถบที่อยู่ทันที
+ */
+function backToLauncher_(r) {
+  const h = {};
+  if (r.session) h.s = r.session;
+  if (r.notice) h.n = r.notice;
+  if (r.error) h.err = r.error;
+  if (r.view) h.view = r.view;
+  if (r.pcu) h.pcu = r.pcu;
+  const url = LAUNCHER_URL + '#' + qs_(h);
+  const safe = JSON.stringify(url).replace(/</g, '\\u003c');
+  const html = '<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<style>body{font-family:sans-serif;text-align:center;padding:48px 20px;color:#1F2D33}' +
+    'a{display:inline-block;margin-top:16px;padding:14px 28px;border-radius:12px;background:#0B6E4F;color:#fff;' +
+    'font-size:18px;text-decoration:none}</style></head><body>' +
+    '<p style="font-size:18px">' + (r.error ? 'เข้าสู่ระบบไม่สำเร็จ' : 'เข้าสู่ระบบแล้ว') + '</p>' +
+    '<a id="go" target="_top">กลับเข้าระบบ</a>' +
+    '<script>var u=' + safe + ';document.getElementById("go").href=u;' +
+    'try{window.top.location.replace(u);}catch(e){}</script></body></html>';
+  return HtmlService.createHtmlOutput(html).setTitle(APP_NAME).setFaviconUrl(FAVICON_URL)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 /* ------------------------------------------------------------------
@@ -107,6 +143,88 @@ function rotateAuditLog_() {
   sh.setName(SHEETS.AUDIT.name + '_' + Utilities.formatDate(new Date(), TZ, 'yyyyMMdd'));
   ensureSheet_('AUDIT');
   return true;
+}
+
+/**
+ * ย้ายข้อมูลปีงบเก่าไปแท็บเก็บถาวร (เรียกทุกเช้าจาก sendDailyAlerts หรือกดในหน้าตั้งค่า)
+ * เงื่อนไขย้าย "รอบจ่ายยา" 1 รอบ (พร้อมนัดฉีดทั้งหมดของรอบนั้น):
+ *   1) รอบนั้นอยู่ในปีงบก่อนปีปัจจุบัน
+ *   2) วันนี้เลย ARCHIVE_AFTER_DAYS วัน หลังวันที่ช้ากว่าระหว่าง
+ *      "นัดสุดท้ายของรอบ (นัดฉีด/วันฉีดจริง/วันพบแพทย์)" กับ "30 ก.ย. ของปีงบนั้น"
+ * ตัวอย่าง: รอบปีงบ 2569 นัดฉีดถึง 5 พ.ย. 69 -> ย้ายหลัง 5 ธ.ค. 69
+ *          รอบปีงบ 2569 นัดสุดท้าย มี.ค. 69 -> ย้ายหลัง 30 ต.ค. 69
+ * ทะเบียนผู้ป่วยจำวันจ่ายยาเก่าสุดและจำนวนครั้งที่ฉีดไว้ เพื่อให้นับครั้งต่อเนื่องได้เหมือนเดิม
+ * คืนค่า จำนวนรอบที่ย้าย
+ */
+function archiveOldCycles_(todayIso) {
+  const today = todayIso || todayIso_();
+  const curFy = Number(fiscalYearOf(today));
+  const disps = readAll_('DISP');
+  const injs = readAll_('INJ');
+
+  // 1) หาวันสุดท้ายของแต่ละรอบจ่ายยา
+  const last = {};
+  disps.forEach(function (d) { last[d.id] = d.appointmentDate || d.dispenseDate; });
+  injs.forEach(function (i) {
+    [i.scheduledDate, i.actualDate].forEach(function (x) {
+      if (x && (!last[i.dispenseId] || x > last[i.dispenseId])) last[i.dispenseId] = x;
+    });
+  });
+
+  // 2) เลือกรอบที่ครบเงื่อนไข
+  const move = {};
+  disps.forEach(function (d) {
+    const fy = Number(d.fiscalYear);
+    if (!(fy < curFy)) return;                               // ปีงบปัจจุบัน ไม่ย้าย
+    const fyEnd = fiscalRange(String(fy)).to;                // 30 ก.ย. ของปีงบนั้น
+    const end = last[d.id] > fyEnd ? last[d.id] : fyEnd;
+    if (today > addDaysIso(end, ARCHIVE_AFTER_DAYS)) move[d.id] = true;
+  });
+  const ids = Object.keys(move);
+  if (!ids.length) return 0;
+
+  return withLock_(function () {
+    const now = nowStr_();
+    const movedDisps = disps.filter(function (d) { return move[d.id]; });
+    const movedInjs = injs.filter(function (i) { return move[i.dispenseId]; });
+
+    // 3) เขียนลงแท็บเก็บถาวรก่อน (ถ้าขั้นนี้ล้ม ข้อมูลต้นทางยังอยู่ครบ)
+    ['ARCH_DISP', 'ARCH_INJ'].forEach(function (k) { if (!ss_().getSheetByName(SHEETS[k].name)) ensureSheet_(k); });
+    appendMany_('ARCH_DISP', movedDisps.map(function (d) { return Object.assign({}, d, { archivedAt: now }); }));
+    appendMany_('ARCH_INJ', movedInjs.map(function (i) { return Object.assign({}, i, { archivedAt: now }); }));
+
+    // 4) ทะเบียนผู้ป่วย: จำวันจ่ายยาเก่าสุด + จำนวนครั้งที่ฉีดแล้ว ที่ย้ายออกไป
+    const first = {}, done = {};
+    movedDisps.forEach(function (d) {
+      if (d.status === 'active' && (!first[d.hn] || d.dispenseDate < first[d.hn])) first[d.hn] = d.dispenseDate;
+    });
+    movedInjs.forEach(function (i) { if (i.status === 'done') done[i.hn] = (done[i.hn] || 0) + 1; });
+    readAll_('PAT').forEach(function (pt) {
+      if (!first[pt.hn] && !done[pt.hn]) return;
+      const upd = { archivedDone: (Number(pt.archivedDone) || 0) + (done[pt.hn] || 0) };
+      if (first[pt.hn] && (!pt.archivedFirst || first[pt.hn] < pt.archivedFirst)) upd.archivedFirst = first[pt.hn];
+      update_('PAT', pt._row, upd);
+    });
+
+    // 5) เขียนแท็บต้นทางใหม่ เหลือเฉพาะแถวที่ไม่ถูกย้าย
+    keepRows_('DISP', disps, function (d) { return !move[d.id]; });
+    keepRows_('INJ', injs, function (i) { return !move[i.dispenseId]; });
+    bumpDataVersion_();
+    audit_({ uid: 'system', displayName: 'ระบบ' }, 'archive', { dispenses: movedDisps.length, injections: movedInjs.length });
+    return movedDisps.length;
+  });
+}
+
+/** เขียนแท็บใหม่ทั้งแท็บ เหลือเฉพาะแถวที่ keep() = true (แถวท้ายที่เหลือถูกล้างเป็นค่าว่าง) */
+function keepRows_(key, rows, keep) {
+  const headers = SHEETS[key].headers;
+  const sh = sh_(key);
+  const total = sh.getLastRow() - 1;                         // จำนวนแถวข้อมูลเดิม (ไม่รวมหัวตาราง)
+  if (total < 1) return;
+  const kept = rows.filter(keep).map(function (o) { return headers.map(function (h) { return cell_(o[h]); }); });
+  while (kept.length < total) kept.push(headers.map(function () { return ''; }));
+  sh.getRange(2, 1, total, headers.length).setNumberFormat('@').setValues(kept);
+  touch_(key);
 }
 
 /**
@@ -349,8 +467,9 @@ function createDispense_(rec, ctx, v, createdBy, outcomes) {
   // ทะเบียนผู้ป่วย: รายใหม่ = เพิ่ม, รายเดิม = อัปเดตชื่อ/รพ.สต./ประวัติแพ้ยา
   if (ctx.pat) {
     const upd = { name: rec.name, pcu: rec.pcu, allergy: rec.allergy, updatedAt: now };
-    // ไม่มีรอบที่ใช้งานอยู่ (เช่น รอบแรกถูกยกเลิกเพราะบันทึกผิด) -> นับวันรับยาครั้งแรกใหม่
-    if (c.isNew || !ctx.pat.firstDispenseDate || rec.dispenseDate < ctx.pat.firstDispenseDate) {
+    // ไม่เคยมีรอบจ่ายยาเลย (เช่น รอบแรกถูกยกเลิกเพราะบันทึกผิด) -> นับวันรับยาครั้งแรกใหม่
+    // (ผู้ป่วยที่มีข้อมูลในแท็บเก็บถาวร ยังคงวันรับยาครั้งแรกเดิมไว้)
+    if (c.firstInSystem || !ctx.pat.firstDispenseDate || rec.dispenseDate < ctx.pat.firstDispenseDate) {
       upd.firstDispenseDate = rec.dispenseDate;
     }
     update_('PAT', ctx.pat._row, upd);
@@ -429,7 +548,8 @@ function buildCtx_(rec) {
     disps: readAll_('DISP').filter(function (d) { return d.hn === rec.hn && d.status === 'active'; }),
     pat: readAll_('PAT').filter(function (x) { return x.hn === rec.hn; })[0] || null,
     today: todayIso_(),
-    hnLength: HN_LENGTH
+    hnLength: HN_LENGTH,
+    newDays: NEW_PATIENT_DAYS
   };
 }
 
@@ -470,6 +590,11 @@ function checkBackfill_(rec, outcomes, hideNames, exceptReqId) {
 /** HN นี้มีการจ่ายยาที่ใช้งานอยู่หรือไม่ (ใช้แยกรายใหม่/รายเดิม) */
 function hasActiveDispense_(hn) {
   return readAll_('DISP').some(function (d) { return d.hn === hn && d.status === 'active'; });
+}
+
+/** เคยมีประวัติจ่ายยา (ที่ใช้งานอยู่ หรือย้ายไปเก็บถาวรแล้ว) */
+function hasHistory_(hn, pat) {
+  return !!(pat && pat.archivedFirst) || hasActiveDispense_(hn);
 }
 
 /** ตัดข้อมูลการฉีดให้เหลือเฉพาะที่หน้าเว็บต้องใช้ */
@@ -532,7 +657,9 @@ const ACTIONS = {
     roles: STAFF, run: function (user, p) {
       const hn = normalizeHn(p.hn, HN_LENGTH);
       const pat = readAll_('PAT').filter(function (x) { return x.hn === hn; })[0];
-      return pat ? { found: true, isNew: !hasActiveDispense_(hn), name: pat.name, pcu: pat.pcu, allergy: pat.allergy }
+      // รายใหม่ = ยังไม่มีประวัติจ่ายยา หรือยังอยู่ภายใน NEW_PATIENT_DAYS วันนับจากวันจ่ายยาครั้งแรก
+      const first = hasHistory_(hn, pat) ? pat.firstDispenseDate : '';
+      return pat ? { found: true, isNew: isNewPatient(first, todayIso_(), NEW_PATIENT_DAYS), name: pat.name, pcu: pat.pcu, allergy: pat.allergy }
         : { found: false, isNew: true };
     }
   },
@@ -565,12 +692,13 @@ const ACTIONS = {
   // รายการจ่ายยา (ค้นหา/กรอง)
   listDispenses: {
     roles: ALL,
-    cacheKey: function (u, p) { return [scopePcu_(u, p.pcu), p.fy, p.q, !!p.showCancelled]; },
+    cacheKey: function (u, p) { return [scopePcu_(u, p.pcu), p.fy, p.q, !!p.showCancelled, p.month || '']; },
     run: function (user, p) {
       const pcu = scopePcu_(user, p.pcu);
       const q = String(p.q || '').trim();
       const rows = readAll_('DISP').filter(function (d) {
         if (p.fy && String(d.fiscalYear) !== String(p.fy)) return false;
+        if (p.month && d.dispenseDate.slice(0, 7) !== p.month) return false;   // เฉพาะเดือน (YYYY-MM)
         if (pcu && d.pcu !== pcu) return false;
         if (!p.showCancelled && d.status !== 'active') return false;
         if (q && d.hn.indexOf(q) < 0 && d.name.indexOf(q) < 0) return false;
@@ -629,7 +757,10 @@ const ACTIONS = {
         // ทะเบียนผู้ป่วย: วันรับยาครั้งแรก = วันจ่ายยาที่เก่าที่สุดที่ยังใช้งานอยู่
         const pat = readAll_('PAT').filter(function (x) { return x.hn === d.hn; })[0];
         if (pat) {
-          const first = active.map(function (x) { return x.dispenseDate; }).sort()[0] || '';
+          // รวมวันจ่ายยาเก่าสุดที่อยู่ในแท็บเก็บถาวรด้วย (ถ้ามี)
+          const dates = active.map(function (x) { return x.dispenseDate; });
+          if (pat.archivedFirst) dates.push(pat.archivedFirst);
+          const first = dates.sort()[0] || '';
           update_('PAT', pat._row, { firstDispenseDate: first, updatedAt: nowStr_() });
         }
         audit_(user, 'cancelDispense', { id: d.id, reason: p.reason, restored: restored });
@@ -762,7 +893,6 @@ const ACTIONS = {
     run: function (user, p) {
       const pcu = scopePcu_(user, p.pcu);
       const fy = String(p.fy || fiscalYearOf(todayIso_()));
-      const range = fiscalRange(fy);
       const pats = {};
       readAll_('PAT').forEach(function (x) { pats[x.hn] = x; });
       const today = todayIso_();
@@ -783,10 +913,11 @@ const ACTIONS = {
         const row = {
           hn: hn, name: d.name, pcu: d.pcu, drugName: d.drugName, doseMg: d.doseMg,
           firstDispenseDate: first, lastDispenseDate: d.dispenseDate,
+          newUntil: addDaysIso(first, NEW_PATIENT_DAYS),            // เป็นรายใหม่ถึงวันนี้
           appointmentDate: d.appointmentDate, nextInjection: nextInj[hn] || ''
         };
-        // รายใหม่ = ได้รับยาครั้งแรกในระบบ และครั้งแรกนั้นอยู่ในปีงบนี้
-        if (first >= range.from && first <= range.to) out.newList.push(row); else out.oldList.push(row);
+        // รายใหม่ = วันนี้ยังอยู่ภายใน NEW_PATIENT_DAYS วัน นับจากวันจ่ายยาครั้งแรก
+        if (isNewPatient(first, today, NEW_PATIENT_DAYS)) out.newList.push(row); else out.oldList.push(row);
       });
       const byPcu = function (a, b) { return a.pcu === b.pcu ? (a.name < b.name ? -1 : 1) : (a.pcu < b.pcu ? -1 : 1); };
       out.newList.sort(byPcu);
@@ -807,7 +938,7 @@ const ACTIONS = {
       }
       const injs = readAll_('INJ').filter(function (i) { return i.hn === hn && i.status !== 'cancelled'; })
         .sort(function (a, b) { return a.scheduledDate < b.scheduledDate ? -1 : 1; });
-      let n = 0;
+      let n = Number(pat.archivedDone) || 0;                   // เริ่มนับต่อจากครั้งที่ย้ายไปเก็บถาวร
       const timeline = injs.map(function (i) {
         const v = injView_(i);
         if (i.status === 'done') { n++; v.lifetimeNo = n; }   // นับต่อเนื่องเฉพาะที่ฉีดแล้ว
@@ -817,6 +948,7 @@ const ACTIONS = {
       return {
         found: true, hn: hn, name: pat.name, pcu: pat.pcu, allergy: pat.allergy,
         firstDispenseDate: pat.firstDispenseDate, totalDone: n,
+        archivedDone: Number(pat.archivedDone) || 0,
         dispenses: disps.sort(function (a, b) { return a.dispenseDate < b.dispenseDate ? 1 : -1; })
           .map(function (d) {
             return {
@@ -984,7 +1116,10 @@ const ACTIONS = {
 
   // ลิงก์เชื่อมบัญชี LINE ให้เจ้าหน้าที่ห้องยา (รับแจ้งเตือนสรุป)
   linkLineUrl: {
-    roles: STAFF, run: function (user) { return lineAuthUrl_('link', user.uid); }
+    roles: STAFF, run: function (user, p) {
+      EMBED_ = !!(p && p.embed) && !!LAUNCHER_URL;           // เชื่อมจากหน้าที่ฝังอยู่ -> กลับไปหน้าทางเข้า
+      return lineAuthUrl_('link', user.uid);
+    }
   },
 
   // ===== ผู้ดูแลระบบ =====
@@ -1021,6 +1156,14 @@ const ACTIONS = {
   },
   runAlertsNow: {
     roles: ADMIN, run: function (user) { audit_(user, 'runAlertsNow', ''); return sendDailyAlerts(); }
+  },
+  // ย้ายข้อมูลปีงบเก่าไปแท็บเก็บถาวรทันที (ปกติระบบทำเองทุกเช้า)
+  runArchiveNow: {
+    roles: ADMIN, run: function (user) {
+      const n = archiveOldCycles_();
+      audit_(user, 'runArchiveNow', { moved: n });
+      return n ? 'ย้ายไปแท็บเก็บถาวรแล้ว ' + n + ' รอบจ่ายยา' : 'ยังไม่มีข้อมูลที่ครบเงื่อนไขย้าย';
+    }
   },
   setupTrigger: {
     roles: ADMIN, run: function (user) { audit_(user, 'setupTrigger', ''); return createDailyTrigger(); }

@@ -32,6 +32,22 @@ function fromIso(s) {
 }
 
 /** บวก/ลบวันจากวันที่ ISO แล้วคืนค่าเป็น ISO */
+/**
+ * ผู้ป่วยยังเป็น "รายใหม่" ไหม ณ วันที่ refIso
+ * รายใหม่ = refIso อยู่ภายใน days วัน นับจากวันจ่ายยาครั้งแรก (firstIso)
+ * เช่น จ่ายครั้งแรก 1 พ.ย. days=30 -> เป็นรายใหม่ถึง 1 ธ.ค.
+ */
+function isNewPatient(firstIso, refIso, days) {
+  if (!firstIso) return true;                                // ยังไม่มีวันจ่ายยาครั้งแรก = รายใหม่
+  return refIso <= addDaysIso(firstIso, days);
+}
+
+/** วันจ่ายยาครั้งแรกที่เก่าที่สุด ระหว่างทะเบียนผู้ป่วย กับวันจ่ายยารอบนี้ */
+function earliestFirst(pat, dispenseIso) {
+  const f = pat && pat.firstDispenseDate;
+  return f && f < dispenseIso ? f : dispenseIso;
+}
+
 function addDaysIso(iso, n) {
   const d = fromIso(iso);
   d.setDate(d.getDate() + n);
@@ -288,8 +304,12 @@ function validateDispense(rec, ctx) {
   const computed = {
     ampPerDose: ampPerDose, schedule: schedule, ampCalc: ampCalc, injCount: schedule.length,
     everyMonths: every, fiscalYear: fiscalYearOf(rec.dispenseDate), drugName: drug.name,
-    isNew: ctx.disps.length === 0                                // รายใหม่ = ยังไม่มีการจ่ายยาที่ใช้งานอยู่เลย
+    // ยังไม่เคยมีรอบจ่ายยาในระบบเลย (ทั้งที่ใช้งานอยู่และที่ย้ายไปเก็บถาวร)
+    firstInSystem: ctx.disps.length === 0 && !(ctx.pat && ctx.pat.archivedFirst)
   };
+  // รายใหม่ = วันจ่ายยารอบนี้ อยู่ภายใน NEW_PATIENT_DAYS วัน นับจากวันจ่ายยาครั้งแรก
+  const firstDate = computed.firstInSystem ? rec.dispenseDate : earliestFirst(ctx.pat, rec.dispenseDate);
+  computed.isNew = isNewPatient(firstDate, rec.dispenseDate, ctx.newDays || 30);
 
   // 4) ข้อผิดพลาดที่ห้ามบันทึก
   if (!fullSchedule.length) errors.push('ไม่มีวันฉีดระหว่างวันจ่ายยาถึงก่อนวันนัดพบแพทย์');

@@ -140,7 +140,7 @@ function checkOcr_(a) {
   if (hn.length === HN_LENGTH) {
     const pat = readAll_('PAT').filter(function (x) { return x.hn === hn; })[0];
     if (pat) {
-      known = hasActiveDispense_(hn);                     // รายเดิม = มีรอบจ่ายยาที่ใช้งานอยู่
+      known = hasHistory_(hn, pat);                       // รายเดิม = เคยมีประวัติจ่ายยา
       pcu = pat.pcu;
       if (normName(pat.name) !== normName(name)) mark('name', 'ไม่ตรงกับชื่อเดิมในระบบ: ' + pat.name);
     }

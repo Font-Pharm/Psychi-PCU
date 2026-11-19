@@ -62,7 +62,7 @@ function buildPcuFlex_(pcu, dateIso, today, overdue) {
       rows.push(flexText_('- ' + maskName(i.name) + ' นัด ' + thaiDate(i.scheduledDate), { size: 'xs' }));
     });
   }
-  const url = redirectUri_() + '?' + qs_({ view: 'day', pcu: pcu });
+  const url = appUrl_({ view: 'day', pcu: pcu });
   return {
     type: 'flex',
     altText: 'นัดฉีดยาจิตเวช รพ.สต.' + pcu + ' วันนี้ ' + today.length + ' ราย',
@@ -120,7 +120,7 @@ function buildSummaryFlex_(dateIso, perPcu) {
         type: 'box', layout: 'vertical', contents: [{
           type: 'button', style: 'primary', color: '#0B6E4F', height: 'sm',
           // เปิดในเบราว์เซอร์หลักของเครื่อง เพราะ Google ไม่อนุญาตให้ login ในเบราว์เซอร์ของ LINE
-          action: { type: 'uri', label: 'เปิดระบบ', uri: redirectUri_() + '?view=calendar&openExternalBrowser=1' }
+          action: { type: 'uri', label: 'เปิดระบบ', uri: appUrl_({ view: 'calendar', openExternalBrowser: 1 }) }
         }]
       }
     }
@@ -135,6 +135,8 @@ function buildSummaryFlex_(dateIso, perPcu) {
  */
 function sendDailyAlerts() {
   const rotated = rotateAuditLog_();                     // แยก AuditLog เก่าออก ถ้าใหญ่เกิน
+  let archived = 0;
+  try { archived = archiveOldCycles_(); } catch (e) { Logger.log('ย้ายข้อมูลเก็บถาวรไม่สำเร็จ: ' + e.message); }
   const today = todayIso_();
   const since = addDaysIso(today, -OVERDUE_LOOKBACK_DAYS);
   const per = {};
@@ -164,6 +166,7 @@ function sendDailyAlerts() {
   let msg = log.length ? log.join(' | ') : 'วันนี้ไม่มีนัดฉีด';
   if (!/\/exec$/.test(redirectUri_())) msg += ' | คำเตือน: ยังไม่ได้ตั้ง REDIRECT_URI ลิงก์ในการ์ด LINE อาจเปิดไม่ได้';
   if (rotated) msg += ' | แยก AuditLog เก่าเป็นแท็บใหม่แล้ว';
+  if (archived) msg += ' | ย้ายข้อมูลปีงบเก่าไปแท็บเก็บถาวร ' + archived + ' รอบ';
   audit_(null, 'dailyAlert', msg);
   return msg;
 }
@@ -182,6 +185,6 @@ function notifyAdminsRequest_(pcu) {
   return pushLine_(ids, [{
     type: 'text',
     text: 'มีคำขอบันทึกย้อนหลังใหม่ จาก รพ.สต.' + pcu + '\nรออนุมัติทั้งหมด ' + n + ' รายการ\n' +
-      redirectUri_() + '?view=requests&openExternalBrowser=1'
+      appUrl_({ view: 'requests', openExternalBrowser: 1 })
   }]);
 }

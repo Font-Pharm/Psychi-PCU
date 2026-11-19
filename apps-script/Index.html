@@ -124,6 +124,30 @@
     .stat b { display: block; font-size: 26px; line-height: 1.25; color: var(--text); }
     .stat.blue b { color: var(--blue); } .stat.green b { color: var(--primary); }
     .stat.warn { background: var(--warn-l); border-color: var(--warn-b); } .stat.warn small { color: var(--warn-t); } .stat.warn b { color: var(--warn); }
+    .stat .unit { font-size: 15px; font-weight: 500; color: var(--muted); }
+    /* การ์ดตัวเลขที่กดได้: ทั้งใบเป็นปุ่ม มีคำบอกปลายทางชัด ๆ ไม่ต้องเดาว่ากดได้ */
+    .stat-link { font: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column;
+      min-height: 112px; padding: 12px 14px 10px; transition: border-color .15s, box-shadow .15s, transform .1s; }
+    .stat-link .hint { margin-top: auto; padding-top: 6px; display: inline-flex; align-items: center; gap: 2px;
+      font-size: 14px; font-weight: 600; color: var(--primary); }
+    .stat-link.blue .hint { color: var(--blue); } .stat-link.warn .hint { color: var(--warn-t); }
+    .stat-link:hover { border-color: currentColor; box-shadow: 0 2px 10px rgba(11, 110, 79, .10); }
+    .stat-link:active { transform: scale(.98); }
+    .stat-link:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+    .home-scan { margin: 14px 0; min-height: 56px; font-size: 18px; }
+    .pcu-list { display: flex; flex-direction: column; margin: 0 -6px; }
+    .pcu-row { font: inherit; color: var(--text); background: none; border: 0; border-top: 1px solid var(--line);
+      display: flex; align-items: center; gap: 10px; min-height: 60px; padding: 10px 6px; text-align: left; cursor: pointer; }
+    .pcu-row:first-child { border-top: 0; }
+    .pcu-row .nm { font-weight: 600; flex: 0 0 auto; min-width: 84px; }
+    .pcu-row .nums { flex: 1; display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: flex-end; color: var(--muted); font-size: 15px; }
+    .pcu-row .nums b { color: var(--text); font-size: 17px; }
+    .pcu-row svg { color: var(--muted); flex: 0 0 auto; }
+    .pcu-row:hover { background: var(--primary-l); }
+    .pcu-row:focus-visible { outline: 3px solid var(--blue); outline-offset: -3px; border-radius: 8px; }
+    .filterchip { display: inline-flex; align-items: center; gap: 10px; margin: 0 0 10px; padding: 6px 6px 6px 14px;
+      border-radius: 999px; background: var(--primary-l, #E6F2EE); color: var(--primary); font-weight: 600; }
+    @media (prefers-reduced-motion: reduce) { .stat-link { transition: none; } .stat-link:active { transform: none; } }
     .center { max-width: 440px; margin: 40px auto; text-align: center; }
     .login-btn { display: block; margin: 10px 0; padding: 13px; border-radius: 12px; color: #fff; text-decoration: none; font-size: 17px; font-weight: 600; }
     .login-btn:hover { color: #fff; filter: brightness(.95); }
@@ -263,6 +287,8 @@ function thd(iso) {
   const p = String(iso).split('-');
   return Number(p[2]) + ' ' + TH_M[Number(p[1]) - 1] + ' ' + String(Number(p[0]) + 543).slice(-2);
 }
+// "2026-11" -> "พฤศจิกายน 2569"
+function thMonth(ym) { const p = ym.split('-'); return TH_M_FULL[Number(p[1]) - 1] + ' ' + (Number(p[0]) + 543); }
 function pad2(n) { return (n < 10 ? '0' : '') + n; }
 function isoOf(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
 function today() { return ME ? ME.today : isoOf(new Date()); }
@@ -347,7 +373,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('sheet
 const READ_ACTIONS = ['listDispenses', 'calendar', 'pendingList', 'patientsNewOld', 'summary', 'listRequests',
   'lookupHn', 'todayList', 'dashboard'];
 const WRITE_ACTIONS = ['saveDispense', 'cancelDispense', 'confirmInjection', 'backfillSubmit', 'reviewRequest',
-  'updateUser', 'runAlertsNow', 'setupTrigger'];
+  'updateUser', 'runAlertsNow', 'setupTrigger', 'runArchiveNow'];
 const CLIENT_CACHE = new Map();
 const CLIENT_CACHE_MS = 60000;
 
@@ -370,7 +396,7 @@ function call(action, payload, quiet) {
             if (isWrite) CLIENT_CACHE.clear();
             return resolve(r.data);
           }
-          if (r.error === 'SESSION_EXPIRED') { storeSet('pi_token', ''); showLogin('หมดเวลาใช้งาน กรุณาเข้าสู่ระบบใหม่'); }
+          if (r.error === 'SESSION_EXPIRED') { storeSet('pi_token', ''); tellLauncher({ type: 'psy-logout' }); showLogin('หมดเวลาใช้งาน กรุณาเข้าสู่ระบบใหม่'); }
           else toast(r.error, 6000);
           reject(new Error(r.error));
         })
@@ -436,6 +462,12 @@ function bindGo(root) {
   root.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => go(b.dataset.go));
 }
 
+/* ---------- คุยกับหน้าทางเข้า GitHub Pages (เมื่อระบบถูกฝังไว้ใน iframe) ---------- */
+function tellLauncher(msg) {
+  if (!BOOT.embed || !BOOT.launcherOrigin) return false;
+  try { window.top.postMessage(msg, BOOT.launcherOrigin); return true; } catch (e) { return false; }
+}
+
 /* ---------- เริ่มต้น / เข้าสู่ระบบ ---------- */
 async function init() {
   $('foot').textContent = BOOT.footer;
@@ -479,7 +511,7 @@ function showLogin(msg, isOk) {
     </div>`;
   // ลิงก์ login มีอายุ 10 นาที ถ้าเปิดหน้าค้างไว้นานกว่านั้น ให้โหลดหน้าใหม่ก่อน
   document.querySelectorAll('[data-login]').forEach((a) => a.addEventListener('click', () => {
-    if (Date.now() - LOAD_TIME > 9 * 60 * 1000) a.href = BOOT.execUrl;
+    if (Date.now() - LOAD_TIME > 9 * 60 * 1000) a.href = BOOT.homeUrl || BOOT.execUrl;
   }));
 }
 
@@ -487,7 +519,7 @@ function showPending(name) {
   $('view').innerHTML = `<div class="center card"><h2>รอการอนุมัติ</h2>
     <p>บัญชี <b>${esc(name)}</b> ลงทะเบียนแล้ว</p>
     <p class="muted">กรุณาแจ้งห้องยาเพื่ออนุมัติและกำหนด รพ.สต. จากนั้นเปิดลิงก์นี้อีกครั้ง</p>
-    <a class="btn" href="${esc(BOOT.execUrl)}" target="_top">ลองเข้าสู่ระบบอีกครั้ง</a></div>`;
+    <a class="btn" href="${esc(BOOT.homeUrl || BOOT.execUrl)}" target="_top">ลองเข้าสู่ระบบอีกครั้ง</a></div>`;
 }
 
 /* ---------- เมนู ---------- */
@@ -569,6 +601,7 @@ function openMore() {
 function logout() {
   closeModal();
   const t = TOKEN; TOKEN = ''; storeSet('pi_token', '');
+  tellLauncher({ type: 'psy-logout' });                     // ให้หน้าทางเข้าลืม session ด้วย
   busy(true);
   google.script.run.withSuccessHandler(() => { busy(false); showLogin('ออกจากระบบแล้ว', true); })
     .withFailureHandler(() => { busy(false); showLogin('ออกจากระบบแล้ว', true); }).logout(t);
@@ -576,7 +609,7 @@ function logout() {
 
 /** เชื่อม LINE (ห้องยา) เพื่อรับการ์ดสรุปทุกเช้า */
 async function linkLine() {
-  const url = await call('linkLineUrl');
+  const url = await call('linkLineUrl', { embed: BOOT.embed });
   openModal(`<h2>เชื่อมบัญชี LINE</h2><p>เพื่อรับการ์ดสรุปนัดฉีดทุกเช้า</p>
     <a class="btn block" style="background:#06C755" href="${esc(url)}" target="_top">ไปหน้า LINE Login</a>
     <button class="btn ghost block" style="margin-top:8px" onclick="closeModal()">ยกเลิก</button>`, 'เชื่อม LINE');
@@ -624,26 +657,41 @@ async function vHome(opt) {
   $('view').innerHTML = skelCards(2);
   const d = opt.initial || await call('dashboard');
   ME.pendingRequests = d.pendingRequests;
-  const rows = d.rows.length ? `<div class="tw"><table><tr><th>รพ.สต.</th><th>นัดวันนี้</th><th>ฉีดแล้ว</th><th>ไม่มา</th><th>ค้างยืนยัน</th><th></th></tr>
-    ${d.rows.map((r) => `<tr><td>${esc(r.pcu)}</td><td>${r.today}</td><td>${r.done}</td><td>${r.missed}</td>
-      <td>${r.overdue ? `<span class="badge b-overdue">${r.overdue}</span>` : '<span class="muted">-</span>'}</td>
-      <td style="text-align:right"><button class="linkbtn" data-pcu="${esc(r.pcu)}">ดูรายชื่อ</button></td></tr>`).join('')}</table></div>`
+  // รายการ รพ.สต. แบบแถวกดได้ทั้งแถว (อ่านง่ายบนมือถือ ไม่ต้องเลื่อนตารางซ้าย-ขวา)
+  const rows = d.rows.length ? `<div class="pcu-list">${d.rows.map((r) => `
+    <button type="button" class="pcu-row" data-pcu="${esc(r.pcu)}" aria-label="ดูรายชื่อ รพ.สต.${esc(r.pcu)}">
+      <span class="nm">${esc(r.pcu)}</span>
+      <span class="nums"><span>นัด <b>${r.today}</b></span><span>ฉีดแล้ว <b>${r.done}</b></span>
+        ${r.missed ? `<span>ไม่มา <b>${r.missed}</b></span>` : ''}
+        ${r.overdue ? `<span class="badge b-overdue">ค้าง ${r.overdue}</span>` : ''}</span>
+      ${icon('right', 20)}</button>`).join('')}</div>`
     : emptyBox('วันนี้ไม่มีนัดฉีด', 'ไม่มีรายการค้างยืนยันในช่วง 30 วัน', 'ดูปฏิทิน', 'calendar');
   $('view').innerHTML = `
     <div class="stats">
-      <div class="stat blue"><small>นัดฉีดวันนี้</small><b>${d.today} <span class="muted">ราย</span></b></div>
-      <div class="stat warn"><small>ค้างยืนยัน</small><b>${d.overdue} <span style="font-size:15px">ราย</span></b></div>
-      <div class="stat"><small>คำขอรออนุมัติ</small><b>${d.pendingRequests} <span class="muted">รายการ</span></b></div>
-      <div class="stat green"><small>จ่ายยาเดือนนี้</small><b>${d.ampMonth} <span class="muted">amp</span></b></div>
+      ${statLink('blue', 'นัดฉีดวันนี้', d.today, 'ราย', 'ดูรายชื่อ', 'today')}
+      ${statLink(d.overdue ? 'warn' : '', 'ค้างยืนยัน', d.overdue, 'ราย', d.overdue ? 'ยืนยันผล' : 'ไม่มีค้าง', 'overdue')}
+      ${statLink('', 'คำขอรออนุมัติ', d.pendingRequests, 'รายการ', 'ดูคำขอ', 'requests')}
+      ${statLink('green', 'จ่ายยาเดือนนี้', d.ampMonth, 'amp', 'ดูรายการจ่าย', 'month')}
     </div>
-    <div class="row" style="margin:14px 0">
-      <button class="btn blue" data-go="scan">${icon('camera', 22)} สแกนสติ๊กเกอร์</button>
-      <button class="btn ghost" data-go="today">${icon('check', 22)} ยืนยันการฉีด</button>
-      ${d.pendingRequests && ME.role === 'admin' ? `<button class="btn ghost" data-go="requests">${icon('clock', 22)} คำขอรออนุมัติ <span class="count">${d.pendingRequests}</span></button>` : ''}
-    </div>
+    <button class="btn blue block home-scan" data-go="scan">${icon('camera', 24)} สแกนสติ๊กเกอร์ บันทึกการจ่ายยา</button>
     <div class="card"><h2>นัดฉีดวันนี้ แยกตาม รพ.สต.</h2>${rows}</div>`;
   bindGo($('view'));
   $('view').querySelectorAll('[data-pcu]').forEach((b) => b.onclick = () => go('today', { pcu: b.dataset.pcu }));
+  // การ์ดตัวเลข: กดแล้วไปหน้ารายการที่เกี่ยวข้อง
+  const dest = {
+    today: () => go('today', { pcu: '' }),
+    overdue: () => go('today', { pcu: '', focus: 'overdue' }),
+    requests: () => go('requests'),
+    month: () => go('records', { month: today().slice(0, 7) })
+  };
+  $('view').querySelectorAll('[data-stat]').forEach((b) => b.onclick = dest[b.dataset.stat]);
+}
+
+/** การ์ดตัวเลขที่กดได้ (ปุ่มทั้งใบ + คำบอกว่ากดแล้วไปไหน) */
+function statLink(tone, label, n, unit, hint, key) {
+  return `<button type="button" class="stat stat-link ${tone}" data-stat="${key}" aria-label="${label} ${n} ${unit} — ${hint}">
+    <small>${label}</small><b>${n} <span class="unit">${unit}</span></b>
+    <span class="hint">${hint} ${icon('right', 16)}</span></button>`;
 }
 
 /* =====================================================================
@@ -653,6 +701,7 @@ let todayPcu = '';
 async function vToday(opt) {
   const staff = ME.role !== 'pcu';
   if (opt.pcu !== undefined) todayPcu = opt.pcu;
+  let focusOverdue = opt.focus === 'overdue';
   $('view').innerHTML = `
     <div class="row" style="margin-bottom:12px">
       ${staff ? `<select id="t_pcu" aria-label="เลือก รพ.สต.">${pcuOptions(todayPcu, 'ทุก รพ.สต.')}</select>` : ''}
@@ -705,6 +754,10 @@ async function vToday(opt) {
     if (up.length) h += `<div class="sec-title">นัดฉีดใน 7 วันข้างหน้า</div>` + up.map(upRow).join('');
     $('t_out').innerHTML = h;
     bindGo($('t_out'));
+    if (focusOverdue && over.length) {                       // มาจากการ์ด "ค้างยืนยัน" -> เลื่อนไปที่ส่วนนั้น
+      focusOverdue = false;
+      $('t_out').querySelector('.sec-title.warn').scrollIntoView({ block: 'start' });
+    }
     $('t_out').querySelectorAll('[data-act]').forEach((b) => b.onclick = () => {
       const i = list.find((x) => x.id === b.dataset.id);
       if (b.dataset.act === 'sheet') openConfirm(i, render);
@@ -1039,16 +1092,23 @@ async function checkScan() {
 /* =====================================================================
  * หน้า 2: รายการจ่ายยา (ห้องยา)
  * ===================================================================== */
-async function vRecords() {
+async function vRecords(opt) {
+  let month = (opt && opt.month) || '';                      // มาจากการ์ด "จ่ายยาเดือนนี้"
   $('view').innerHTML = `<div class="card"><h2>รายการจ่ายยา</h2>
+    <div id="r_chip"></div>
     <div class="row"><select id="r_fy">${fyOptions(ME.fiscalYear)}</select>
     <select id="r_pcu">${pcuOptions('', 'ทุก รพ.สต.')}</select>
     <input id="r_q" placeholder="ค้นหา HN หรือชื่อ">
     <label class="muted" style="flex:0 0 auto"><input type="checkbox" id="r_c" style="width:auto"> แสดงที่ยกเลิก</label>
     <button class="btn" id="r_go">ค้นหา</button></div></div><div class="card tw" id="r_out"></div>`;
   const load = async () => {
-    const list = await call('listDispenses', { fy: $('r_fy').value, pcu: $('r_pcu').value, q: $('r_q').value.trim(), showCancelled: $('r_c').checked });
-    $('r_out').innerHTML = `<p class="muted">${list.length} รายการ</p><table><tr><th>วันจ่าย</th><th>รพ.สต.</th><th>HN / ชื่อ</th><th>ยา</th><th>วันฉีด</th><th>จ่าย (amp)</th><th>นัดแพทย์</th><th>ผู้บันทึก</th><th></th></tr>
+    $('r_chip').innerHTML = month ? `<div class="filterchip">เฉพาะเดือน ${thMonth(month)}
+      <button class="linkbtn" id="r_all">ดูทั้งปีงบ</button></div>` : '';
+    $('r_fy').hidden = !!month;                               // กรองรายเดือนอยู่ -> ซ่อนตัวเลือกปีงบ กันสับสน
+    if (month) $('r_all').onclick = () => { month = ''; load(); };
+    const list = await call('listDispenses', { fy: month ? '' : $('r_fy').value, month: month, pcu: $('r_pcu').value, q: $('r_q').value.trim(), showCancelled: $('r_c').checked });
+    const amp = list.filter((d) => d.status === 'active').reduce((s, d) => s + (Number(d.qtyAmp) || 0), 0);
+    $('r_out').innerHTML = `<p class="muted">${list.length} รายการ · รวม ${amp} amp</p><table><tr><th>วันจ่าย</th><th>รพ.สต.</th><th>HN / ชื่อ</th><th>ยา</th><th>วันฉีด</th><th>จ่าย (amp)</th><th>นัดแพทย์</th><th>ผู้บันทึก</th><th></th></tr>
       ${list.map((d) => `<tr style="${d.status !== 'active' ? 'opacity:.5' : ''}"><td>${thd(d.dispenseDate)}</td><td>${esc(d.pcu)}</td>
         <td>${esc(d.hn)}<br>${esc(d.name)} ${d.isNew === 'Y' ? '<span class="badge b-new">ใหม่</span>' : ''}${d.allergy ? `<br><span class="muted" style="color:var(--red)">แพ้ยา: ${esc(d.allergy)}</span>` : ''}</td>
         <td>${esc(shortDrug(d.drugName))} ${esc(d.doseMg)} mg</td><td>${esc(d.days)} (${esc(d.injCount)} ครั้ง)</td>
@@ -1073,6 +1133,10 @@ async function vRecords() {
 async function downloadPdf(pcu, date) {
   if (!pcu) return toast('กรุณาเลือก รพ.สต. ก่อน');
   const r = await call('pdf', { pcu, date });
+  // ฝังอยู่ในหน้าทางเข้า: ให้หน้าทางเข้าเป็นคนบันทึกไฟล์ (เบราว์เซอร์มือถือมักไม่ให้ iframe ดาวน์โหลดเอง)
+  if (tellLauncher({ type: 'psy-download', fileName: r.fileName, base64: r.base64 })) {
+    return toast('กำลังบันทึกไฟล์ ' + r.fileName, 4000);
+  }
   const bin = atob(r.base64); const arr = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
   const url = URL.createObjectURL(new Blob([arr], { type: 'application/pdf' }));
@@ -1088,13 +1152,14 @@ async function downloadPdf(pcu, date) {
 async function vPatients() {
   $('view').innerHTML = `<div class="card"><h2>ผู้ป่วยรายใหม่ / รายเดิม</h2><div class="row">
     <select id="n_fy">${fyOptions(ME.fiscalYear)}</select><select id="n_pcu">${pcuOptions('', 'ทุก รพ.สต.')}</select></div>
-    <p class="muted">รายใหม่ = ได้รับยาฉีดครั้งแรกในระบบ ภายในปีงบที่เลือก</p></div><div id="n_out"></div>`;
-  const tbl = (l) => !l.length ? '<p class="muted">ไม่มีรายการ</p>' : `<table><tr><th>รพ.สต.</th><th>HN / ชื่อ</th><th>ยา</th><th>รับยาครั้งแรก</th><th>จ่ายล่าสุด</th><th>ฉีดครั้งถัดไป</th><th>นัดแพทย์</th></tr>
+    <p class="muted">รายใหม่ = ยังไม่ครบ 30 วัน นับจากวันที่ได้รับยาฉีดครั้งแรก เมื่อครบแล้วจะย้ายเป็นรายเดิมเอง</p></div><div id="n_out"></div>`;
+  let isNewList = false;
+  const tbl = (l, nw) => (isNewList = !!nw, !l.length) ? '<p class="muted">ไม่มีรายการ</p>' : `<table><tr><th>รพ.สต.</th><th>HN / ชื่อ</th><th>ยา</th><th>รับยาครั้งแรก</th><th>จ่ายล่าสุด</th><th>ฉีดครั้งถัดไป</th><th>นัดแพทย์</th></tr>
     ${l.map((r) => `<tr><td>${esc(r.pcu)}</td><td>${esc(r.hn)}<br>${esc(r.name)}</td><td>${esc(shortDrug(r.drugName))} ${esc(r.doseMg)} mg</td>
-    <td>${thd(r.firstDispenseDate)}</td><td>${thd(r.lastDispenseDate)}</td><td>${thd(r.nextInjection) || '-'}</td><td>${thd(r.appointmentDate)}</td></tr>`).join('')}</table>`;
+    <td>${thd(r.firstDispenseDate)}${isNewList ? `<br><span class="muted">รายใหม่ถึง ${thd(r.newUntil)}</span>` : ''}</td><td>${thd(r.lastDispenseDate)}</td><td>${thd(r.nextInjection) || '-'}</td><td>${thd(r.appointmentDate)}</td></tr>`).join('')}</table>`;
   const load = async () => {
     const r = await call('patientsNewOld', { fy: $('n_fy').value, pcu: $('n_pcu').value });
-    $('n_out').innerHTML = `<div class="card tw"><h2>รายใหม่ ฉีดยาครั้งแรก (${r.newList.length} ราย)</h2>${tbl(r.newList)}</div>
+    $('n_out').innerHTML = `<div class="card tw"><h2>รายใหม่ ภายใน 30 วันแรก (${r.newList.length} ราย)</h2>${tbl(r.newList, true)}</div>
       <div class="card tw"><h2>รายเดิม (${r.oldList.length} ราย)</h2>${tbl(r.oldList)}</div>`;
   };
   $('n_fy').onchange = load; $('n_pcu').onchange = load;
@@ -1294,11 +1359,16 @@ async function vSettings() {
     <button class="btn" id="t_trig">ตั้งเวลาแจ้งเตือนทุกเช้า</button>
     <button class="btn blue" id="t_now">ส่งแจ้งเตือนวันนี้ทันที</button>
     <button class="btn ghost" id="t_test">ทดสอบส่งหาตัวเอง</button></div><div id="t_msg"></div></div>
+    <div class="card"><h2>ข้อมูลปีงบเก่า</h2>
+      <p class="muted">ระบบย้ายรอบจ่ายยาของปีงบก่อนไปแท็บเก็บถาวรเองทุกเช้า เมื่อนัดสุดท้ายของรอบนั้นผ่านไปเกิน 30 วัน
+      (และเลย 30 ต.ค. แล้ว) ข้อมูลยังอยู่ในไฟล์ Sheets แท็บ Archive_Dispenses และ Archive_Injections</p>
+      <button class="btn ghost" id="t_arch">ย้ายข้อมูลที่ครบเงื่อนไขตอนนี้</button></div>
     <div class="card tw"><h2>ผู้ใช้งาน</h2><p class="muted">ผู้ใช้ใหม่ต้องอนุมัติ (สถานะ "ใช้งาน") และผู้ใช้ รพ.สต. ต้องเลือก รพ.สต.</p><div id="u_out"></div></div>`;
   const msg = (t) => $('t_msg').innerHTML = `<div class="alert ok">${esc(t)}</div>`;
   $('t_trig').onclick = async () => msg(await call('setupTrigger'));
   $('t_now').onclick = async () => msg(await call('runAlertsNow'));
   $('t_test').onclick = async () => msg('ส่งสำเร็จ ' + await call('testLine') + ' คน');
+  $('t_arch').onclick = async () => msg(await call('runArchiveNow'));
   const load = async () => {
     const users = await call('listUsers');
     const pcuSel = (v) => `<option value="">-</option>` + ME.pcus.map((p) => `<option ${p === v ? 'selected' : ''}>${esc(p)}</option>`).join('');

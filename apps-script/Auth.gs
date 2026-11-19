@@ -20,6 +20,15 @@ function redirectUri_() {
   return prop_('REDIRECT_URI') || ScriptApp.getService().getUrl();
 }
 
+// คำสั่งนี้ถูกเรียกจากหน้าที่ฝังใน GitHub Pages หรือไม่ (ตั้งใน doGet / api)
+let EMBED_ = false;
+
+/** ลิงก์เปิดระบบสำหรับส่งให้ผู้ใช้ (การ์ด LINE): ใช้หน้าทางเข้า GitHub Pages ถ้าตั้งไว้ */
+function appUrl_(params) {
+  const q = qs_(params || {});
+  return (LAUNCHER_URL || redirectUri_()) + (q ? '?' + q : '');
+}
+
 /**
  * สร้าง state (รหัสใช้ครั้งเดียว อายุ 10 นาที) กันการปลอมคำขอ login
  * เก็บไว้ว่ามาจาก Google หรือ LINE และเป็นการ login หรือเชื่อมบัญชี
@@ -27,7 +36,8 @@ function redirectUri_() {
 function newState_(provider, mode, uid, view, pcu) {
   const s = Utilities.getUuid().replace(/-/g, '');
   CacheService.getScriptCache().put('st_' + s, JSON.stringify({
-    provider: provider, mode: mode, uid: uid || '', view: view || '', pcu: pcu || ''
+    provider: provider, mode: mode, uid: uid || '', view: view || '', pcu: pcu || '',
+    embed: EMBED_ ? 1 : 0                                    // เข้ามาจากหน้าทางเข้า GitHub Pages
   }), 600);
   return s;
 }
@@ -80,6 +90,12 @@ function handleOAuthCallback_(code, state) {
   if (!raw) return { error: 'หมดเวลาเข้าสู่ระบบ กรุณากดเข้าสู่ระบบอีกครั้ง' };
   cache.remove('st_' + state);                     // state ใช้ได้ครั้งเดียว
   const st = JSON.parse(raw);
+  const out = callbackResult_(st, code);
+  out.embed = !!st.embed;                                    // ต้องส่งกลับไปหน้าทางเข้า GitHub Pages หรือไม่
+  return out;
+}
+
+function callbackResult_(st, code) {
   const back = { view: st.view, pcu: st.pcu };               // หน้าที่จะเปิดหลัง login
   try {
     const ident = st.provider === 'google' ? exchangeGoogle_(code) : exchangeLine_(code);
