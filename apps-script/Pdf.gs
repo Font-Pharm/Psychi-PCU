@@ -1,11 +1,32 @@
 /**
  * =====================================================================
- * Pdf.gs — ไฟล์ PDF รายชื่อผู้ป่วยที่ต้องฉีดยา (ฟอนต์ Sarabun)
+ * Pdf.gs — เอกสาร PDF รายชื่อผู้ป่วยนัดฉีดยาจิตเวช (รูปแบบเอกสารทางการ)
  * ---------------------------------------------------------------------
  * วิธีทำ: สร้าง Google Docs ชั่วคราว -> แปลงเป็น PDF -> ย้ายไฟล์ชั่วคราวลงถังขยะ
  * ไฟล์ PDF ส่งตรงไปที่เครื่องผู้ใช้ ไม่ถูกเก็บหรือแชร์ใน Drive
+ *
+ * รูปแบบเอกสาร
+ *   - กระดาษ A4 แนวนอน (ตาราง 7 คอลัมน์ ชื่อและชื่อยาไม่ต้องตัดบรรทัด)
+ *   - ขอบกระดาษ บน/ล่าง 2 ซม. ซ้าย 2.5 ซม. ขวา 2 ซม.
+ *   - ฟอนต์ Sarabun (ฟอนต์ราชการที่ Google Docs มีให้ใช้) หัวเรื่อง 16 / เนื้อหา 12 / หมายเหตุ 10
+ *   - ความกว้างคอลัมน์กำหนดตามความยาวข้อมูลจริงของแต่ละคอลัมน์
+ *   - ใช้ "ช่องว่างไม่ตัดบรรทัด" ระหว่างคำที่ต้องอยู่ด้วยกัน เช่น 50 mg, ชื่อ-สกุล
  * =====================================================================
  */
+
+const PDF_CM = 28.35;                                     // 1 ซม. = 28.35 จุด (หน่วยของ Google Docs)
+const PDF_NBSP = '\u00A0';                                       // ช่องว่างที่ไม่ยอมให้ตัดขึ้นบรรทัดใหม่
+
+// ความกว้างคอลัมน์ (ซม.) รวม 25.2 ซม. = กว้างกระดาษแนวนอน 29.7 - ขอบซ้าย 2.5 - ขอบขวา 2
+const PDF_COLS = [
+  { head: 'ที่', cm: 1.0, center: true },
+  { head: 'HN', cm: 2.5, center: true },
+  { head: 'ชื่อ-สกุล', cm: 5.6 },
+  { head: 'ยา / ขนาด', cm: 4.9 },
+  { head: 'ครั้งที่', cm: 1.4, center: true },
+  { head: 'แพ้ยา', cm: 3.4 },                                 // ตารางค้างยืนยันจะเปลี่ยนเป็น "วันนัด"
+  { head: 'ผลการฉีด / ลงชื่อผู้ฉีด', cm: 6.4 }
+];
 
 /**
  * สร้าง PDF ของ รพ.สต. 1 แห่ง ในวันที่เลือก
@@ -20,7 +41,7 @@ function buildInjectionPdf_(pcu, dateIso) {
   const overdue = dateIso === todayIso_() ? all.filter(function (i) {
     return i.status === 'pending' && i.scheduledDate < dateIso &&
       i.scheduledDate >= addDaysIso(dateIso, -OVERDUE_LOOKBACK_DAYS);
-  }) : [];
+  }).sort(function (a, b) { return a.scheduledDate < b.scheduledDate ? -1 : 1; }) : [];
   // ประวัติแพ้ยาจากทะเบียนผู้ป่วย (แสดงในเอกสารเพื่อความปลอดภัยของผู้ฉีด)
   const allergy = {};
   readAll_('PAT').forEach(function (p) { allergy[p.hn] = p.allergy; });
@@ -29,38 +50,49 @@ function buildInjectionPdf_(pcu, dateIso) {
   const fileId = doc.getId();
   try {
     const body = doc.getBody();
-    body.setMarginTop(40).setMarginBottom(40).setMarginLeft(40).setMarginRight(40);
-    const A = DocumentApp.Attribute;
-    // สร้างชุดรูปแบบตัวอักษร (ฟอนต์ Sarabun) ปรับขนาด/ตัวหนา/สีได้
-    const sty = function (size, bold, color) {
-      const o = {};
-      o[A.FONT_FAMILY] = 'Sarabun';
-      o[A.FONT_SIZE] = size;
-      o[A.BOLD] = !!bold;
-      o[A.FOREGROUND_COLOR] = color || '#000000';
-      return o;
-    };
-    const base = sty(12, false);
+    // กระดาษ A4 แนวนอน + ขอบกระดาษ
+    body.setPageWidth(29.7 * PDF_CM).setPageHeight(21.0 * PDF_CM);
+    body.setMarginTop(2 * PDF_CM).setMarginBottom(2 * PDF_CM);
+    body.setMarginLeft(2.5 * PDF_CM).setMarginRight(2 * PDF_CM);
 
-    // หัวเอกสาร (แยกทีละคำสั่ง ไม่ต่อกันเป็นสาย เพราะบางคำสั่งของ Google Docs คืนค่า null)
+    // ---- หัวเอกสาร ----
     const title = body.getParagraphs()[0];
-    title.setText('รายชื่อผู้ป่วยนัดฉีดยาจิตเวช รพ.สต.' + pcu);
-    styleP_(title, sty(16, true), true);
-    styleP_(body.appendParagraph('วันที่ ' + thaiDateLong_(dateIso) + '   จำนวน ' + dayList.length + ' ราย'), base, true);
+    title.setText('รายชื่อผู้ป่วยนัดฉีดยาจิตเวช');
+    styleP_(title, sty_(16, true), 'center', 0, 2);
+    styleP_(body.appendParagraph('โรงพยาบาลส่งเสริมสุขภาพตำบล' + pcu), sty_(14, true), 'center', 0, 2);
+    styleP_(body.appendParagraph('วันที่ ' + nb_(thaiDateLong_(dateIso)) + '     จำนวนนัดฉีด ' + dayList.length + PDF_NBSP + 'ราย'),
+      sty_(12, false), 'center', 0, 10);
 
-    // ตารางหลัก
-    appendInjTable_(body, base, sty(12, true, '#FFFFFF'), dayList, allergy, false);
+    // ---- ตารางหลัก ----
+    appendInjTable_(body, dayList, allergy, false);
 
-    // ตารางค้างยืนยัน
+    // ---- ตารางค้างยืนยัน ----
     if (overdue.length) {
-      styleP_(body.appendParagraph('รายการที่เลยวันนัดและยังไม่ยืนยันการฉีด ' + overdue.length + ' ราย'), sty(12, true));
-      appendInjTable_(body, base, sty(12, true, '#FFFFFF'), overdue, allergy, true);
+      styleP_(body.appendParagraph('รายการที่เลยวันนัดและยังไม่ยืนยันผลการฉีด (' + overdue.length + PDF_NBSP + 'ราย)'),
+        sty_(12, true), 'left', 14, 4);
+      appendInjTable_(body, overdue, allergy, true);
     }
 
-    styleP_(body.appendParagraph('ผู้จัดทำรายงาน ........................................   วันที่ ......................'), base);
-    styleP_(body.appendParagraph(APP_FOOTER + ' | พิมพ์เมื่อ ' + nowStr_()), sty(10, false, '#607D8B'));
-    doc.saveAndClose();
+    // ---- หมายเหตุ + ช่องลงชื่อผู้จัดทำ ----
+    styleP_(body.appendParagraph('หมายเหตุ  โปรดบันทึกผลการฉีดในระบบภายในวันที่ฉีด กรณีผู้ป่วยไม่มาตามนัด ให้ระบุ "ไม่มา" และติดตามผู้ป่วย'),
+      sty_(10, false, '#455A64'), 'left', 10, 18);
+    const indent = 16.5 * PDF_CM;                          // ช่องลงชื่อชิดขวาของหน้า
+    ['ลงชื่อ' + PDF_NBSP + '.............................................' + PDF_NBSP + 'ผู้จัดทำ',
+      '(.............................................)',
+      'ตำแหน่ง' + PDF_NBSP + '.............................................',
+      'วันที่' + PDF_NBSP + '........../........../..........'].forEach(function (t) {
+      const p = body.appendParagraph(t);
+      styleP_(p, sty_(12, false), 'center', 0, 4);
+      p.setIndentStart(indent).setIndentFirstLine(indent);
+    });
 
+    // ---- ท้ายกระดาษทุกหน้า ----
+    const footer = doc.addFooter();
+    const fp = footer.getParagraphs()[0] || footer.appendParagraph('');
+    fp.setText(APP_FOOTER + '   พิมพ์เมื่อ ' + nowStr_());
+    styleP_(fp, sty_(9, false, '#78909C'), 'right', 0, 0);
+
+    doc.saveAndClose();
     const blob = DriveApp.getFileById(fileId).getAs('application/pdf');
     return {
       fileName: 'นัดฉีดยาจิตเวช_' + pcu + '_' + dateIso + '.pdf',
@@ -75,53 +107,101 @@ function buildInjectionPdf_(pcu, dateIso) {
   }
 }
 
-/** เพิ่มตารางรายชื่อลงเอกสาร */
-function appendInjTable_(body, base, headStyle, list, allergy, showDate) {
-  const head = ['ที่', 'HN', 'ชื่อ-สกุล', 'ยา / ขนาด', 'ครั้งที่', showDate ? 'วันนัด' : 'แพ้ยา', 'สถานะ / ลงชื่อผู้ฉีด'];
-  const rows = [head];
+/** เพิ่มตารางรายชื่อลงเอกสาร (showDate = ตารางค้างยืนยัน แสดงวันนัดแทนแพ้ยา) */
+function appendInjTable_(body, list, allergy, showDate) {
+  const heads = PDF_COLS.map(function (c, k) { return k === 5 && showDate ? 'วันนัด' : c.head; });
+  const rows = [heads];
   list.forEach(function (i, k) {
     rows.push([
-      String(k + 1), i.hn, i.name,
-      i.drugName.split(' ').slice(0, 2).join(' ') + ' ' + i.doseMg + ' mg IM (' + i.ampPerDose + ' amp)',
+      String(k + 1),
+      i.hn,
+      nb_(i.name),                                           // ชื่อ-สกุลอยู่บรรทัดเดียวกัน
+      drugText_(i),
       String(i.cycleNo),
-      showDate ? thaiDate(i.scheduledDate) : (allergy[i.hn] || '-'),
-      i.status === 'done' ? 'ฉีดแล้ว ' + thaiDate(i.actualDate) : (i.status === 'missed' ? 'ไม่มาฉีด' : ' ')
+      showDate ? nb_(thaiDate(i.scheduledDate)) : (allergy[i.hn] || 'ไม่มี'),
+      i.status === 'done' ? 'ฉีดแล้ว' + PDF_NBSP + nb_(thaiDate(i.actualDate)) : (i.status === 'missed' ? 'ไม่มา' : ' ')
     ]);
   });
-  if (rows.length === 1) rows.push([' ', ' ', 'ไม่มีรายการ', ' ', ' ', ' ', ' ']);
+  if (rows.length === 1) rows.push([' ', ' ', 'ไม่มีนัดฉีด', ' ', ' ', ' ', ' ']);
+
   const table = body.appendTable(rows);
-  table.setBorderColor('#90A4AE');
+  table.setBorderColor('#9AA5AB').setBorderWidth(0.75);
+  PDF_COLS.forEach(function (c, k) { table.setColumnWidth(k, c.cm * PDF_CM); });
+
   for (let r = 0; r < table.getNumRows(); r++) {
     const row = table.getRow(r);
+    row.setMinimumHeight(r === 0 ? 0.9 * PDF_CM : 1.15 * PDF_CM);   // แถวข้อมูลสูงพอให้ลงชื่อได้
     for (let c = 0; c < row.getNumCells(); c++) {
       const cell = row.getCell(c);
-      cell.setPaddingTop(2).setPaddingBottom(2);
-      // ช่องที่ว่างเปล่า editAsText() ได้ค่า null -> ตั้งรูปแบบที่ "ย่อหน้า" ในช่องแทน (ไม่ error)
-      const st = r === 0 ? headStyle : base;               // หัวตาราง = ตัวหนาสีขาว
+      cell.setPaddingTop(4).setPaddingBottom(4).setPaddingLeft(5).setPaddingRight(5);
+      cell.setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER);
+      if (r === 0) cell.setBackgroundColor('#E3ECE8');         // หัวตารางพื้นเทาเขียวอ่อน ตัวอักษรดำ
+      const text = cell.getText();
+      // แพ้ยา: ถ้ามีประวัติ ให้เป็นตัวหนาสีแดงเข้ม เพื่อให้ผู้ฉีดเห็นชัด
+      const alert = r > 0 && c === 5 && !showDate && text && text !== 'ไม่มี' && text.trim();
+      const st = r === 0 ? sty_(12, true) : (alert ? sty_(12, true, '#A11A1A') : sty_(12, false));
+      const align = r === 0 || PDF_COLS[c].center ? 'center' : 'left';
       for (let k = 0; k < cell.getNumChildren(); k++) {
         const child = cell.getChild(k);
-        if (child && child.getType() === DocumentApp.ElementType.PARAGRAPH) styleP_(child.asParagraph(), st);
+        if (child && child.getType() === DocumentApp.ElementType.PARAGRAPH) styleP_(child.asParagraph(), st, align, 0, 0);
       }
-      if (r === 0) cell.setBackgroundColor('#0B6E4F');
     }
   }
+  // ย่อหน้าว่างหลังตาราง (Google Docs บังคับให้มี) ทำให้เตี้ยที่สุด
+  const after = body.appendParagraph('');
+  styleP_(after, sty_(4, false), 'left', 0, 0);
 }
 
-/** ตั้งฟอนต์ให้ย่อหน้า (ข้ามถ้าไม่มีย่อหน้า) center = จัดกึ่งกลาง */
-function styleP_(p, st, center) {
+/** ข้อความยา 2 บรรทัด: ชื่อยา / ขนาด วิธีให้ จำนวน amp (คำที่ต้องอยู่ด้วยกันใช้ช่องว่างไม่ตัดบรรทัด) */
+function drugText_(i) {
+  const name = String(i.drugName || '').split(' ').slice(0, 2).join(PDF_NBSP);
+  return name + '\n' + i.doseMg + PDF_NBSP + 'mg' + PDF_NBSP + 'IM' + '  (' + i.ampPerDose + PDF_NBSP + 'amp)';
+}
+
+/** แทนช่องว่างธรรมดาด้วยช่องว่างไม่ตัดบรรทัด */
+function nb_(s) {
+  return String(s || '').replace(/ /g, PDF_NBSP);
+}
+
+/** ชุดรูปแบบตัวอักษร ฟอนต์ Sarabun */
+function sty_(size, bold, color) {
+  const A = DocumentApp.Attribute;
+  const o = {};
+  o[A.FONT_FAMILY] = 'Sarabun';
+  o[A.FONT_SIZE] = size;
+  o[A.BOLD] = !!bold;
+  o[A.FOREGROUND_COLOR] = color || '#000000';
+  return o;
+}
+
+/**
+ * ตั้งรูปแบบย่อหน้า (ข้ามถ้าไม่มีย่อหน้า)
+ * align = 'left' | 'center' | 'right', before/after = ระยะห่างก่อน/หลังย่อหน้า (จุด)
+ */
+function styleP_(p, st, align, before, after) {
   if (!p) return;
   p.setAttributes(st);
-  if (center) p.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+  const H = DocumentApp.HorizontalAlignment;
+  if (align) p.setAlignment(align === 'center' ? H.CENTER : align === 'right' ? H.RIGHT : H.LEFT);
+  p.setLineSpacing(1.0);                                     // ระยะบรรทัดปกติ ไม่ห่างเกิน
+  if (before !== undefined) p.setSpacingBefore(before);
+  if (after !== undefined) p.setSpacingAfter(after);
 }
 
 /**
  * ทดสอบสร้าง PDF จากหน้าแก้โค้ด: เลือกฟังก์ชัน testPdf แล้วกด "เรียกใช้"
  * ดูผลที่ "บันทึกการดำเนินการ" (ถ้า error จะบอกชื่อไฟล์และบรรทัด)
+ * ถ้าอยากเปิดดูไฟล์: ตั้ง SAVE = true ไฟล์จะถูกบันทึกในไดรฟ์ของเจ้าของสคริปต์
  */
 function testPdf() {
+  const SAVE = false;
   const pcu = readAll_('PCU')[0].name;                   // รพ.สต. แห่งแรกในรายการ
   const r = buildInjectionPdf_(pcu, todayIso_());
   Logger.log('สำเร็จ: ' + r.fileName + ' ขนาด ' + Math.round(r.base64.length * 0.75 / 1024) + ' KB');
+  if (SAVE) {
+    const f = DriveApp.createFile(Utilities.newBlob(Utilities.base64Decode(r.base64), 'application/pdf', r.fileName));
+    Logger.log('เปิดดูได้ที่: ' + f.getUrl());
+  }
 }
 
 /** วันที่แบบเต็ม "9 พฤศจิกายน 2569" */
